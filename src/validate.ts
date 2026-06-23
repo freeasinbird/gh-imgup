@@ -65,6 +65,9 @@ export function validateMaxSize(input: string): number {
   return mb;
 }
 
+/** Network transports a GitHub remote can legitimately use. */
+const GIT_REMOTE_SCHEMES = new Set(["https:", "http:", "ssh:", "git:"]);
+
 /**
  * Parse an `owner/repo` out of a git remote URL. Handles HTTPS/`ssh://`/`git://`
  * URLs and scp-style SSH (`git@github.com:o/r`), strips a trailing `.git`/slash,
@@ -72,8 +75,11 @@ export function validateMaxSize(input: string): number {
  * *structurally* — via the URL parser, or the scp `[user@]host:path` grammar —
  * and must equal `github.com` exactly, so spoofs like `evilgithub.com`,
  * `github.com.evil.com`, or a path-embedded `…@github.com/o/r` are rejected.
- * Only real github.com remotes are accepted; anything else fails loudly so the
- * caller passes --repo rather than uploading to an inferred wrong repo.
+ * The URL scheme is also allowlisted to real git transports, so a non-git
+ * remote whose host happens to be github.com (`file://github.com/o/r`,
+ * `ftp://github.com/o/r.git`) is rejected too. Only real github.com remotes are
+ * accepted; anything else fails loudly so the caller passes --repo rather than
+ * uploading to an inferred wrong repo.
  */
 export function parseGitRemoteUrl(remote: string): Repo {
   const trimmed = remote.trim();
@@ -97,6 +103,9 @@ export function parseGitRemoteUrl(remote: string): Repo {
     try {
       url = new URL(trimmed);
     } catch {
+      throw unparseable();
+    }
+    if (!GIT_REMOTE_SCHEMES.has(url.protocol)) {
       throw unparseable();
     }
     host = url.hostname;

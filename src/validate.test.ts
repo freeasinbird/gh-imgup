@@ -123,6 +123,26 @@ test("parseGitRemoteUrl rejects path-embedded @github.com on a non-github host",
   );
 });
 
+test("parseGitRemoteUrl rejects non-git transports even on the github.com host", () => {
+  // hostname === github.com is not enough; the scheme must be a real git
+  // transport, or a file:// / ftp:// remote would infer an unrelated repo.
+  assert.throws(
+    () => parseGitRemoteUrl("file://github.com/o/r"),
+    /Could not parse/,
+  );
+  assert.throws(
+    () => parseGitRemoteUrl("ftp://github.com/o/r.git"),
+    /Could not parse/,
+  );
+});
+
+test("parseGitRemoteUrl accepts the git:// transport", () => {
+  assert.deepEqual(parseGitRemoteUrl("git://github.com/octocat/hello.git"), {
+    owner: "octocat",
+    name: "hello",
+  });
+});
+
 const dir = mkdtempSync(join(tmpdir(), "gh-imgup-validate-"));
 after(() => rmSync(dir, { recursive: true, force: true }));
 
