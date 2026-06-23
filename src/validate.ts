@@ -69,6 +69,17 @@ export function validateMaxSize(input: string): number {
 const GIT_REMOTE_SCHEMES = new Set(["https:", "http:", "ssh:", "git:"]);
 
 /**
+ * Redact any credentials embedded in a remote URL's userinfo before it is shown
+ * in an error. `git remote get-url origin` can return `https://user:TOKEN@host/…`
+ * (GitHub Actions configures exactly this), so echoing the raw remote on a parse
+ * failure would leak the secret to stderr / CI logs / agent context. Replaces
+ * the `user[:pass]@` segment after `://` or at the start (scp form) with `***@`.
+ */
+function redactRemote(remote: string): string {
+  return remote.replace(/(^|:\/\/)[^/@]+@/, "$1***@");
+}
+
+/**
  * Parse an `owner/repo` out of a git remote URL. Handles HTTPS/`ssh://`/`git://`
  * URLs and scp-style SSH (`git@github.com:o/r`), strips a trailing `.git`/slash,
  * and preserves dotted names (`owner.github.io`). The host is extracted
@@ -85,7 +96,7 @@ export function parseGitRemoteUrl(remote: string): Repo {
   const trimmed = remote.trim();
   const unparseable = () =>
     new Error(
-      `Could not parse GitHub repo from remote: ${remote}\n` +
+      `Could not parse GitHub repo from remote: ${redactRemote(remote)}\n` +
         "Only github.com remotes are supported. Pass --repo owner/repo explicitly.",
     );
 

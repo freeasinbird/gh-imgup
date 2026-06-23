@@ -143,6 +143,25 @@ test("parseGitRemoteUrl accepts the git:// transport", () => {
   });
 });
 
+test("parseGitRemoteUrl error redacts embedded credentials", () => {
+  // git remote get-url can return a credentialed URL (Actions does); a parse
+  // failure must not echo the secret. Covers URL and scp userinfo forms.
+  for (const remote of [
+    "https://user:ghp_supersecret@ghe.example.com/o/r.git",
+    "user:ghp_supersecret@ghe.example.com:o/r.git",
+  ]) {
+    let message = "";
+    try {
+      parseGitRemoteUrl(remote);
+    } catch (err) {
+      message = err instanceof Error ? err.message : String(err);
+    }
+    assert.notEqual(message, "", `expected ${remote} to throw`);
+    assert.doesNotMatch(message, /ghp_supersecret/);
+    assert.match(message, /\*\*\*@ghe\.example\.com/);
+  }
+});
+
 const dir = mkdtempSync(join(tmpdir(), "gh-imgup-validate-"));
 after(() => rmSync(dir, { recursive: true, force: true }));
 
