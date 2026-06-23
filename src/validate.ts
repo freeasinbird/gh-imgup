@@ -66,23 +66,51 @@ export function validateMaxSize(input: string): number {
 }
 
 /**
- * Parse an `owner/repo` out of a git remote URL. Handles HTTPS, scp-style SSH
- * (`git@github.com:o/r`), and `ssh://` forms, strips a trailing `.git`/slash,
- * and preserves dotted names (`owner.github.io`). The host is anchored to a
- * boundary (`//`, `@`, or start) so `evilgithub.com` and path-embedded
- * `github.com` segments don't match — only real github.com remotes are accepted.
+ * Parse an `owner/repo` out of a git remote URL. Handles HTTPS/`ssh://`/`git://`
+ * URLs and scp-style SSH (`git@github.com:o/r`), strips a trailing `.git`/slash,
+ * and preserves dotted names (`owner.github.io`). The host is extracted
+ * *structurally* — via the URL parser, or the scp `[user@]host:path` grammar —
+ * and must equal `github.com` exactly, so spoofs like `evilgithub.com`,
+ * `github.com.evil.com`, or a path-embedded `…@github.com/o/r` are rejected.
+ * Only real github.com remotes are accepted; anything else fails loudly so the
+ * caller passes --repo rather than uploading to an inferred wrong repo.
  */
 export function parseGitRemoteUrl(remote: string): Repo {
-  const match = remote
-    .trim()
-    .match(/(?:^|@|\/\/)github\.com[/:]([^/]+)\/(.+?)(?:\.git)?\/?$/);
-  if (!match) {
-    throw new Error(
+  const trimmed = remote.trim();
+  const unparseable = () =>
+    new Error(
       `Could not parse GitHub repo from remote: ${remote}\n` +
         "Only github.com remotes are supported. Pass --repo owner/repo explicitly.",
     );
+
+  let host: string;
+  let path: string;
+  // scp-like syntax has no scheme and a host:path separator, e.g.
+  // `git@github.com:owner/repo` — the host is the segment before the first ":",
+  // after stripping an optional `user@` (which cannot contain "@" or "/").
+  const scp = trimmed.match(/^(?:[^@/]+@)?([^/:]+):(.+)$/);
+  if (!trimmed.includes("://") && scp) {
+    host = scp[1] ?? "";
+    path = scp[2] ?? "";
+  } else {
+    let url: URL;
+    try {
+      url = new URL(trimmed);
+    } catch {
+      throw unparseable();
+    }
+    host = url.hostname;
+    path = url.pathname.replace(/^\/+/, "");
   }
-  return validateRepo(`${match[1]}/${match[2]}`);
+
+  if (host !== "github.com") {
+    throw unparseable();
+  }
+  const parts = path.match(/^([^/]+)\/(.+?)(?:\.git)?\/?$/);
+  if (!parts) {
+    throw unparseable();
+  }
+  return validateRepo(`${parts[1]}/${parts[2]}`);
 }
 
 /** A validated, uploadable image file and its resolved metadata. */

@@ -110,6 +110,19 @@ test("parseGitRemoteUrl rejects host spoofs and non-github remotes", () => {
   );
 });
 
+test("parseGitRemoteUrl rejects path-embedded @github.com on a non-github host", () => {
+  // The host must be github.com structurally, not merely contain "@github.com"
+  // somewhere in the path — otherwise inference uploads to the wrong real repo.
+  assert.throws(
+    () => parseGitRemoteUrl("https://example.com/foo@github.com/o/r.git"),
+    /Could not parse/,
+  );
+  assert.throws(
+    () => parseGitRemoteUrl("git@evil.com:foo@github.com/o/r.git"),
+    /Could not parse/,
+  );
+});
+
 const dir = mkdtempSync(join(tmpdir(), "gh-imgup-validate-"));
 after(() => rmSync(dir, { recursive: true, force: true }));
 
