@@ -65,13 +65,9 @@ that, or the project has adopted a self-merge workflow.
 
 ## Build, test, run
 
-> **Status:** the toolchain below is the intended setup. As of this
-> writing the repository holds only specs and conventions — `package.json`,
-> `tsconfig.json`, `biome.json`, and `src/` do not exist yet. Creating them
-> per these commands is the first implementation work unit. Update this
-> note once the scaffolding lands.
-
-- **Runtime:** Node.js 22+ (global `fetch`, `node:test`, type stripping).
+- **Runtime:** Node.js 22+ (global `fetch`, `node:test`). CI runs Node 22;
+  the build/test path targets compiled output, so it also runs on Node 20
+  for local development.
 - **Package manager:** npm. Published as an npm package; also distributed
   as a `gh` CLI extension and an agent skill (all three point at the same
   compiled `dist/`).
@@ -86,17 +82,17 @@ Intended npm scripts (single command each, runnable in CI):
 | ----------- | ------------------ | -------------------------------------------------- |
 | Build       | `npm run build`    | `tsc` — compiles `src/*.ts` → `dist/`              |
 | Type-check  | `npm run typecheck`| `tsc --noEmit`                                     |
-| Test        | `npm test`         | `node --test` (Node built-in runner + `node:assert`)|
+| Test        | `npm test`         | builds, then `node --test dist/*.test.js` (built-in runner + `node:assert`); tests run against compiled output, not type-stripped source |
 | Lint        | `npm run lint`     | `biome check .`                                    |
 | Format      | `npm run format`   | `biome format --write .`                           |
 | Run (local) | `node dist/index.js <file...> [options]` | or `npx gh-imgup …` once published |
 
 - **CLAUDE.md is a pointer** that imports this file (`@AGENTS.md`). Edit
   AGENTS.md, never the pointer.
-- **CI must run** `npm run build`, `npm test`, and `npm run lint` (plus
-  `npm run typecheck`) on every PR. The workflow conventions below assume
-  these checks exist and gate merges; add `.github/workflows/ci.yml` with
-  the first implementation PR.
+- **CI** (`.github/workflows/ci.yml`) runs `npm run lint`, `npm run typecheck`,
+  and `npm test` (which builds) on every PR and push to `main`. The workflow
+  conventions below assume these checks exist and gate merges — keep them
+  green and don't remove the gate.
 
 ## Architecture invariants
 
