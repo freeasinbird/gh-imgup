@@ -43,9 +43,30 @@ function altText(filename: string): string {
   return basename(filename, extname(filename));
 }
 
+/**
+ * Escape Markdown link-structural characters in alt text. The stem is a
+ * user-controlled filename, so an unescaped `]` would close the `![…]` early and
+ * let a crafted name inject its own image target (e.g. a tracking pixel) into a
+ * PR/issue comment. Backslash-escaping `\`, `[`, and `]` keeps the alt inert;
+ * newlines (which would also break the construct) collapse to spaces.
+ */
+function escapeAltText(text: string): string {
+  return text.replace(/[\\[\]]/g, "\\$&").replace(/[\r\n]+/g, " ");
+}
+
+/**
+ * A Markdown link destination. A bare destination is terminated by `)` or
+ * whitespace, so wrap in angle brackets when the URL contains either (GitHub
+ * asset URLs are percent-encoded and normally don't, so the common case stays
+ * unwrapped). Angle-bracket destinations are standard CommonMark.
+ */
+function markdownDestination(url: string): string {
+  return /[\s()]/.test(url) ? `<${url}>` : url;
+}
+
 /** A single GitHub-rendering markdown image reference. */
 function markdownLine(result: UploadResult): string {
-  return `![${altText(result.filename)}](${result.url})`;
+  return `![${escapeAltText(altText(result.filename))}](${markdownDestination(result.url)})`;
 }
 
 /**

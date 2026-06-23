@@ -55,6 +55,37 @@ test("markdown render joins multiple images with newlines", () => {
   assert.ok(out.endsWith("\n"));
 });
 
+test("markdown render neutralizes a filename that injects a second image", () => {
+  // A real filename can't contain "/", but it can contain ] [ ( ) — enough to
+  // close the alt early and inject a SECOND image with an attacker-set target.
+  // Payload: `x](https:evil)![y.png` would otherwise render two images.
+  const malicious: UploadResult = { ...one, filename: "x](https:evil)![y.png" };
+  const out = render([malicious], "markdown");
+  // The breakout `]` and `[` are backslash-escaped...
+  assert.match(out, /x\\\]/);
+  assert.match(out, /!\\\[y/);
+  // ...so no UNescaped `](https:evil` survives as a real Markdown destination.
+  assert.doesNotMatch(out, /(?<!\\)\]\(https:evil/);
+  // Exactly one image, and its (unescaped) destination is the real asset URL.
+  assert.ok(out.endsWith(`](${one.url})\n`));
+});
+
+test("markdown render and json carry the same escaped markdown", () => {
+  const malicious: UploadResult = { ...one, filename: "a]b.png" };
+  const md = render([malicious], "markdown").trimEnd();
+  const parsed = JSON.parse(render([malicious], "json"));
+  assert.equal(parsed[0].markdown, md);
+  assert.equal(md, `![a\\]b](${one.url})`);
+});
+
+test("markdown render angle-wraps a URL containing spaces or parens", () => {
+  const spaced: UploadResult = { ...one, url: "https://x/a b(1).png" };
+  assert.equal(
+    render([spaced], "markdown"),
+    "![screenshot](<https://x/a b(1).png>)\n",
+  );
+});
+
 test("raw render is one bare URL per line", () => {
   assert.equal(render([one], "raw"), `${one.url}\n`);
   assert.equal(render([one, two], "raw"), `${one.url}\n${two.url}\n`);
