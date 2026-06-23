@@ -1,0 +1,41 @@
+{
+  "name": "gh-imgup",
+  "version": "0.1.0",
+  "description": "Securely upload images to GitHub issues & PRs via the Release Assets API — zero deps, no browser.",
+  "type": "module",
+  "bin": {
+    "gh-imgup": "dist/index.js"
+  },
+  "files": [
+    "dist"
+  ],
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "build": "tsc",
+    "typecheck": "tsc --noEmit",
+    "test": "npm run build && node --test dist/*.test.js",
+    "lint": "biome check .",
+    "format": "biome format --write ."
+  },
+  "keywords": [
+    "github",
+    "cli",
+    "screenshots",
+    "pull-requests",
+    "release-assets",
+    "gh-extension"
+  ],
+  "author": "Ben Nelson-Weiss",
+  "license": "GPL-3.0-or-later",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/freeasinbird/gh-imgup.git"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "^2.5.1",
+    "@types/node": "^26.0.0",
+    "typescript": "^6.0.3"
+  }
+}
