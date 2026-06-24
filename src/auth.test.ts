@@ -141,6 +141,22 @@ test("authedFetch refuses non-GitHub hosts and never calls fetch", async () => {
   assert.equal(calls.length, 0);
 });
 
+test("authedFetch redacts a token that is an invalid header value", async () => {
+  // A token with an embedded CR/LF makes Headers.set throw a TypeError that
+  // echoes the value; that must be redacted, not leaked, and fetch never called.
+  const { impl, calls } = recordingFetch(new Response("ok"));
+  const badToken = "ghp_bad\r\nLEAKCANARY";
+  await assert.rejects(
+    () => authedFetch(badToken, "https://api.github.com/x", {}, impl),
+    (err: Error) => {
+      assert.doesNotMatch(err.message, /LEAKCANARY/);
+      assert.match(err.message, /\[REDACTED\]/);
+      return true;
+    },
+  );
+  assert.equal(calls.length, 0);
+});
+
 test("authedFetch sanitizes the token out of a network error", async () => {
   const throwing = ((_url: string | URL, _init?: RequestInit) => {
     return Promise.reject(new Error("connect failed using ghp_LEAK"));

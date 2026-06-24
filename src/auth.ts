@@ -105,18 +105,22 @@ export async function authedFetch(
   if (!GITHUB_API_HOSTS.has(parsed.host)) {
     throw new Error(`Refusing to contact non-GitHub host in URL: ${url}`);
   }
-  // Normalize any HeadersInit form (object, Headers, tuple array) so a caller's
-  // header (e.g. the upload's Content-Type) is never dropped. Authorization is
-  // always ours — the chokepoint owns it and a caller cannot override it.
-  const headers = new Headers(init.headers);
-  if (!headers.has("Accept")) {
-    headers.set("Accept", "application/vnd.github+json");
-  }
-  if (!headers.has("X-GitHub-Api-Version")) {
-    headers.set("X-GitHub-Api-Version", "2022-11-28");
-  }
-  headers.set("Authorization", `Bearer ${token}`);
   try {
+    // Header construction is inside the sanitized try: a token with an invalid
+    // header character (e.g. an embedded CR/LF) makes Headers.set throw a
+    // TypeError that echoes the value, so it must be redacted like any other
+    // error rather than propagating raw. Normalizing init.headers via the
+    // Headers ctor also preserves any HeadersInit form (object, Headers, tuple
+    // array) so a caller's header (e.g. the upload's Content-Type) isn't
+    // dropped; Authorization is always ours — a caller cannot override it.
+    const headers = new Headers(init.headers);
+    if (!headers.has("Accept")) {
+      headers.set("Accept", "application/vnd.github+json");
+    }
+    if (!headers.has("X-GitHub-Api-Version")) {
+      headers.set("X-GitHub-Api-Version", "2022-11-28");
+    }
+    headers.set("Authorization", `Bearer ${token}`);
     return await fetchImpl(url, { ...init, headers });
   } catch (err) {
     throw new Error(sanitize(token, err));
