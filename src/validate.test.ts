@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import {
   mkdirSync,
   mkdtempSync,
@@ -206,12 +207,14 @@ after(() => rmSync(dir, { recursive: true, force: true }));
 
 test("validateImageFile returns metadata for a valid image", () => {
   const file = join(dir, "shot.png");
-  writeFileSync(file, Buffer.alloc(1024));
+  const bytes = Buffer.alloc(1024);
+  writeFileSync(file, bytes);
   assert.deepEqual(validateImageFile(file, 25 * 1024 * 1024), {
     filepath: file,
     filename: "shot.png",
     mime: "image/png",
     size: 1024,
+    sha256: createHash("sha256").update(bytes).digest("hex"),
   });
 });
 
