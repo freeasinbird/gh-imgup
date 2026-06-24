@@ -109,6 +109,19 @@ test("authedFetch preserves a non-plain-object HeadersInit (Headers/array)", asy
   }
 });
 
+test("authedFetch forces redirect:error so a 3xx can't escape the allowlist", async () => {
+  // The host check only runs on the initial URL; auto-following a redirect would
+  // contact an off-allowlist host. A caller cannot re-enable auto-follow.
+  const { impl, calls } = recordingFetch(new Response("ok"));
+  await authedFetch(
+    "t",
+    "https://api.github.com/x",
+    { redirect: "follow" },
+    impl,
+  );
+  assert.equal(calls[0]?.init.redirect, "error");
+});
+
 test("authedFetch refuses non-HTTPS URLs and never calls fetch", async () => {
   const { impl, calls } = recordingFetch(new Response("ok"));
   await assert.rejects(

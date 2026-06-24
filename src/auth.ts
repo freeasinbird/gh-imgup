@@ -121,7 +121,12 @@ export async function authedFetch(
       headers.set("X-GitHub-Api-Version", "2022-11-28");
     }
     headers.set("Authorization", `Bearer ${token}`);
-    return await fetchImpl(url, { ...init, headers });
+    // Fail loud on any 3xx rather than silently following it: the host/HTTPS
+    // checks only ran on the initial URL, and none of our operations need a
+    // client-followed redirect, so an off-allowlist Location would otherwise
+    // escape invariant 4. Forced after the spread so a caller can't re-enable
+    // auto-follow; a 3xx now rejects into the sanitizing catch.
+    return await fetchImpl(url, { ...init, headers, redirect: "error" });
   } catch (err) {
     throw new Error(sanitize(token, err));
   }
