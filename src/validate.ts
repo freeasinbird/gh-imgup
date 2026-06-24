@@ -8,7 +8,10 @@ export interface Repo {
   name: string;
 }
 
-/** Parse and validate an `owner/repo` string. Rejects empty/`.`/`..` components. */
+/** Components that are syntactically `[A-Za-z0-9_.-]+` but never a real repo. */
+const BAD_REPO_COMPONENTS = new Set([".", "..", ".git"]);
+
+/** Parse and validate an `owner/repo` string. Rejects empty/`.`/`..`/`.git` components. */
 export function validateRepo(input: string): Repo {
   const match = input.match(/^([a-zA-Z0-9_.-]+)\/([a-zA-Z0-9_.-]+)$/);
   const owner = match?.[1];
@@ -16,7 +19,7 @@ export function validateRepo(input: string): Repo {
   if (owner === undefined || name === undefined) {
     throw new Error(`Invalid repo: "${input}". Expected: owner/repo`);
   }
-  if (owner === "." || owner === ".." || name === "." || name === "..") {
+  if (BAD_REPO_COMPONENTS.has(owner) || BAD_REPO_COMPONENTS.has(name)) {
     throw new Error(`Invalid repo component: "${input}"`);
   }
   return { owner, name };
@@ -54,10 +57,16 @@ export function validateNumber(input: string): number {
   return n;
 }
 
-/** Validate `--max-size`, returning a positive number of megabytes (fractions allowed). */
+/**
+ * Validate `--max-size`, returning a positive number of megabytes (fractions
+ * allowed). Requires a plain decimal so it matches validateNumber's strictness —
+ * `0x10`, `1e3`, `+5`, `Infinity`, and `NaN` are rejected rather than silently
+ * reinterpreted.
+ */
 export function validateMaxSize(input: string): number {
-  const mb = Number(input.trim());
-  if (!Number.isFinite(mb) || mb <= 0) {
+  const trimmed = input.trim();
+  const mb = Number(trimmed);
+  if (!/^\d*\.?\d+$/.test(trimmed) || !Number.isFinite(mb) || mb <= 0) {
     throw new Error(
       `Invalid --max-size: "${input}". Expected a positive number of MB.`,
     );
@@ -69,14 +78,33 @@ export function validateMaxSize(input: string): number {
 const GIT_REMOTE_SCHEMES = new Set(["https:", "http:", "ssh:", "git:"]);
 
 /**
- * Redact any credentials embedded in a remote URL's userinfo before it is shown
- * in an error. `git remote get-url origin` can return `https://user:TOKEN@host/…`
+ * Redact any credentials embedded in a remote's userinfo before it is shown in
+ * an error. `git remote get-url origin` can return `https://user:TOKEN@host/…`
  * (GitHub Actions configures exactly this), so echoing the raw remote on a parse
- * failure would leak the secret to stderr / CI logs / agent context. Replaces
- * the `user[:pass]@` segment after `://` or at the start (scp form) with `***@`.
+ * failure would leak the secret to stderr / CI logs / agent context.
+ *
+ * A parseable URL has its username/password dropped precisely via the URL parser
+ * (this correctly handles a `@` inside the password and never over-masks a `@`
+ * that legitimately sits in the path). For scp-form (`git@host:path`) or a
+ * malformed URL — where a raw `@`/`/` in the userinfo defeats a charset regex —
+ * fall back to masking everything up to the LAST `@`. Over-masking there is safe:
+ * a real GitHub owner/repo contains no `@`, so nothing identifying is hidden.
  */
 function redactRemote(remote: string): string {
-  return remote.replace(/(^|:\/\/)[^/@]+@/, "$1***@");
+  if (remote.includes("://")) {
+    try {
+      const url = new URL(remote);
+      if (url.username || url.password) {
+        url.username = "";
+        url.password = "";
+        return url.toString();
+      }
+      return remote;
+    } catch {
+      // Malformed URL (e.g. a raw "/" in the userinfo) — fall through.
+    }
+  }
+  return remote.replace(/(^|:\/\/).*@/, "$1***@");
 }
 
 /**
@@ -123,7 +151,9 @@ export function parseGitRemoteUrl(remote: string): Repo {
     path = url.pathname.replace(/^\/+/, "");
   }
 
-  if (host !== "github.com") {
+  // DNS hosts are case-insensitive; the URL parser lowercases http(s) hosts but
+  // not ssh:/git:/scp ones, so normalize here for a consistent compare.
+  if (host.toLowerCase() !== "github.com") {
     throw unparseable();
   }
   const parts = path.match(/^([^/]+)\/(.+?)(?:\.git)?\/?$/);

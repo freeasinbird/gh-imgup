@@ -57,6 +57,16 @@ test("validateMaxSize accepts positive numbers including fractions", () => {
   assert.throws(() => validateMaxSize(""), /Invalid --max-size/);
 });
 
+test("validateMaxSize rejects non-decimal numeric literals (parity with validateNumber)", () => {
+  for (const bad of ["0x10", "1e3", "+5", "Infinity", "NaN", "5."]) {
+    assert.throws(
+      () => validateMaxSize(bad),
+      /Invalid --max-size/,
+      `bad: ${bad}`,
+    );
+  }
+});
+
 test("parseGitRemoteUrl handles https and ssh, stripping .git", () => {
   const want = { owner: "freeasinbird", name: "gh-imgup" };
   assert.deepEqual(
@@ -143,11 +153,28 @@ test("parseGitRemoteUrl accepts the git:// transport", () => {
   });
 });
 
+test("parseGitRemoteUrl accepts a mixed-case host in every transport", () => {
+  // DNS hosts are case-insensitive; scp/ssh/git don't get lowercased by URL.
+  const want = { owner: "o", name: "r" };
+  assert.deepEqual(parseGitRemoteUrl("git@GitHub.com:o/r.git"), want);
+  assert.deepEqual(parseGitRemoteUrl("https://GitHub.com/o/r.git"), want);
+  assert.deepEqual(parseGitRemoteUrl("ssh://git@GITHUB.COM/o/r.git"), want);
+  assert.deepEqual(parseGitRemoteUrl("git://GitHub.com/o/r.git"), want);
+  // Case-folding doesn't let a non-github host through.
+  assert.throws(
+    () => parseGitRemoteUrl("git@GitLab.com:o/r"),
+    /Could not parse/,
+  );
+});
+
 test("parseGitRemoteUrl error redacts embedded credentials", () => {
   // git remote get-url can return a credentialed URL (Actions does); a parse
-  // failure must not echo the secret. Covers URL and scp userinfo forms.
+  // failure must never echo the secret, while still naming the host so the
+  // error is useful. Covers simple, @-in-password, /-in-password, and scp forms.
   for (const remote of [
     "https://user:ghp_supersecret@ghe.example.com/o/r.git",
+    "https://svc:p@ss-ghp_supersecret@ghe.example.com/o/r",
+    "https://user:sec/ghp_supersecret@ghe.example.com/o/r.git",
     "user:ghp_supersecret@ghe.example.com:o/r.git",
   ]) {
     let message = "";
@@ -157,9 +184,21 @@ test("parseGitRemoteUrl error redacts embedded credentials", () => {
       message = err instanceof Error ? err.message : String(err);
     }
     assert.notEqual(message, "", `expected ${remote} to throw`);
-    assert.doesNotMatch(message, /ghp_supersecret/);
-    assert.match(message, /\*\*\*@ghe\.example\.com/);
+    assert.doesNotMatch(
+      message,
+      /ghp_supersecret/,
+      `leaked secret for ${remote}`,
+    );
+    assert.match(message, /ghe\.example\.com/, `host missing for ${remote}`);
   }
+});
+
+test("parseGitRemoteUrl and validateRepo reject a .git component", () => {
+  assert.throws(
+    () => parseGitRemoteUrl("https://github.com/owner/.git"),
+    /Invalid repo component/,
+  );
+  assert.throws(() => validateRepo("owner/.git"), /Invalid repo component/);
 });
 
 const dir = mkdtempSync(join(tmpdir(), "gh-imgup-validate-"));
