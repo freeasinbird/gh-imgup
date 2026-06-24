@@ -46,6 +46,23 @@ test("redactBody redacts a token-bearing body and truncates to MAX_DETAIL", () =
   assert.match(out, /\[REDACTED\]/);
 });
 
+test("redactBody and redactField collapse control chars (no log forging)", () => {
+  const nl = String.fromCharCode(10); // newline (C0)
+  const bel = String.fromCharCode(7); // BEL (C0)
+  const out = redactBody(TOKEN, `line1${nl}FORGED${bel}end`);
+  assert.ok(!out.includes(nl) && !out.includes(bel)); // no raw control chars
+  assert.equal(out, "line1 FORGED end");
+  assert.equal(redactField(`a${nl}b`, TOKEN), "a b");
+
+  // DEL and C1 controls (NEL U+0085, CSI U+009B) are terminal/log vectors too.
+  const del = String.fromCharCode(0x7f);
+  const nel = String.fromCharCode(0x85);
+  const csi = String.fromCharCode(0x9b);
+  const c1 = redactBody(TOKEN, `a${del}b${nel}c${csi}d`);
+  assert.ok(![del, nel, csi].some((ch) => c1.includes(ch)));
+  assert.equal(c1, "a b c d");
+});
+
 test("apiError builds a sanitized, scope-hinted message from a non-2xx response", async () => {
   const res = new Response("nope", { status: 403, statusText: "Forbidden" });
   const err = await apiError("ghp_SECRET", res, "Do thing", "issues:write");

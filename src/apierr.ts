@@ -49,30 +49,43 @@ export function decodesToToken(value: string, token: string): boolean {
 }
 
 /**
+ * Collapse control characters (C0, DEL, and the C1 range — which includes NEL
+ * U+0085 and the single-char CSI U+009B) and the Unicode line/paragraph
+ * separators to a single space before echoing a response-derived value into an
+ * error message. A tampered body or reason phrase could otherwise inject
+ * newlines or terminal escape sequences into stderr/CI logs (log forging).
+ */
+function collapseControls(text: string): string {
+  // biome-ignore lint/suspicious/noControlCharactersInRegex: matching control chars is the intent — strip them before echoing to logs.
+  return text.replace(/[\u0000-\u001f\u007f-\u009f\u2028\u2029]+/g, " ");
+}
+
+/**
  * Render a response-derived value for an error message. `sanitize()` strips only
  * the literal token, so a tampered field carrying an encoded token would
  * otherwise leak it to stderr/CI logs. If the value holds the token at ANY
- * encoding depth, redact the whole field; otherwise it is safe to echo verbatim
- * for diagnostics.
+ * encoding depth, redact the whole field; otherwise it is echoed with control
+ * characters collapsed (no log forging) for diagnostics.
  */
 export function redactField(value: unknown, token: string): string {
   const str = String(value);
-  return decodesToToken(str, token) ? "[REDACTED]" : str;
+  return decodesToToken(str, token) ? "[REDACTED]" : collapseControls(str);
 }
 
 /**
  * Render an API response body for an error message. `sanitize()` strips only the
  * literal token, so an encoded token in a malformed/tampered body (`ghp%5FTOK`)
  * would survive; redact the whole body when it decodes to the token at any
- * depth. Redact BEFORE truncating so neither a literal token nor a redaction
- * decision can be split across the cutoff.
+ * depth. Otherwise collapse control characters (no log forging from a tampered
+ * body) before truncating — and redact BEFORE truncating so neither a literal
+ * token nor a redaction decision can be split across the cutoff.
  */
 export function redactBody(token: string, body: string): string {
   const literal = sanitize(token, body);
-  return (decodesToToken(literal, token) ? "[REDACTED]" : literal).slice(
-    0,
-    MAX_DETAIL,
-  );
+  const safe = decodesToToken(literal, token)
+    ? "[REDACTED]"
+    : collapseControls(literal);
+  return safe.slice(0, MAX_DETAIL);
 }
 
 /**
