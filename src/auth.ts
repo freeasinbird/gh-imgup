@@ -1,4 +1,5 @@
 import { execFileSync } from "node:child_process";
+import type { Repo } from "./validate.js";
 
 /** A resolved GitHub token and where it came from. */
 export interface TokenResolution {
@@ -78,6 +79,15 @@ export function sanitize(token: string, err: unknown): string {
 
 /** GitHub API hosts the tool will ever contact. No third-party destinations. */
 const GITHUB_API_HOSTS = new Set(["api.github.com", "uploads.github.com"]);
+
+/** Base URLs for the two GitHub API hosts (shared by release/github/cleanup). */
+export const API = "https://api.github.com";
+export const UPLOADS = "https://uploads.github.com";
+
+/** owner/name URL-encoded for a `/repos/{owner}/{repo}` path segment. */
+export function repoPath(repo: Repo): string {
+  return `${encodeURIComponent(repo.owner)}/${encodeURIComponent(repo.name)}`;
+}
 
 /**
  * `fetch()` for the GitHub API: requires HTTPS and enforces the two-host

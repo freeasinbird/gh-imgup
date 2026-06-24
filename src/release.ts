@@ -2,12 +2,9 @@ import { createHash, randomUUID } from "node:crypto";
 import { readFileSync, statSync } from "node:fs";
 import { basename, extname } from "node:path";
 import { apiError, decodesToToken, redactBody, redactField } from "./apierr.js";
-import { authedFetch, sanitize } from "./auth.js";
+import { API, authedFetch, repoPath, sanitize, UPLOADS } from "./auth.js";
 import type { UploadResult } from "./upload.js";
 import type { ImageFile, Repo } from "./validate.js";
-
-const API = "https://api.github.com";
-const UPLOADS = "https://uploads.github.com";
 
 /** Prerelease metadata. Prerelease (not draft) is load-bearing: draft assets 404 by tag. */
 const RELEASE_NAME = "⚠️ Image assets — do not delete";
@@ -49,10 +46,6 @@ function isTagAlreadyExists(body: unknown): boolean {
         (e as { code?: unknown }).code === "already_exists",
     )
   );
-}
-
-function repoPath(repo: Repo): string {
-  return `${encodeURIComponent(repo.owner)}/${encodeURIComponent(repo.name)}`;
 }
 
 /**

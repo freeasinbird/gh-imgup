@@ -1,8 +1,6 @@
 import { apiError, decodesToToken } from "./apierr.js";
-import { authedFetch, sanitize } from "./auth.js";
+import { API, authedFetch, repoPath, sanitize } from "./auth.js";
 import type { Repo } from "./validate.js";
-
-const API = "https://api.github.com";
 
 /** Injectable I/O for the comment function (real defaults in production). */
 export interface GithubDeps {
@@ -22,11 +20,6 @@ function depsOf(deps: GithubDeps): {
         process.stderr.write(m);
       }),
   };
-}
-
-/** owner/name URL-encoded for a `/repos/{owner}/{repo}` path segment. */
-function repoPath(repo: Repo): string {
-  return `${encodeURIComponent(repo.owner)}/${encodeURIComponent(repo.name)}`;
 }
 
 /** Outcome of posting a comment. */
