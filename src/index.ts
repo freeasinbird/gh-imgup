@@ -1,7 +1,23 @@
 #!/usr/bin/env node
-import { readFileSync } from "node:fs";
+import { execFileSync } from "node:child_process";
+import { readFileSync, realpathSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { decodesToToken } from "./apierr.js";
+import { BROAD_SCOPE_WARNING, resolveToken, sanitize } from "./auth.js";
+import { postComment } from "./github.js";
+import { ensureRelease, uploadAsset } from "./release.js";
+import { type OutputFormat, render, type UploadResult } from "./upload.js";
+import {
+  type ImageFile,
+  parseGitRemoteUrl,
+  type Repo,
+  validateImageFile,
+  validateMaxSize,
+  validateNumber,
+  validateRepo,
+  validateTag,
+} from "./validate.js";
 
 const HELP = `gh-imgup <file...> [options]
 
@@ -23,13 +39,45 @@ Options:
 Environment:
   GITHUB_TOKEN          GitHub token with contents:write scope
                         (add issues:write for --pr/--issue).
+
+Uploaded images are public on public repos (visible to anyone) and visible to
+all collaborators on private repos. Review every image for secrets before upload.
 `;
+
+const DEFAULT_TAG = "_gh-imgup";
+const DEFAULT_MAX_SIZE_MB = "25";
 
 /** Result of a CLI invocation. stdout is machine-parseable only; stderr is human-readable. */
 export interface CliResult {
   stdout: string;
   stderr: string;
   exitCode: number;
+}
+
+/** Injectable dependencies for {@link run} (real defaults in production). */
+export interface RunDeps {
+  env?: NodeJS.ProcessEnv;
+  fetchImpl?: typeof fetch;
+  /** gh CLI token reader (auth fallback). */
+  readGhToken?: () => string | null;
+  /** `git remote get-url origin` reader, for repo inference. */
+  gitRemote?: () => string | null;
+}
+
+/** The flags and positional files parsed from argv. */
+interface ParsedArgs {
+  files: string[];
+  repo?: string;
+  pr?: string;
+  issue?: string;
+  message?: string;
+  tag?: string;
+  maxSize?: string;
+  json: boolean;
+  raw: boolean;
+  cleanup: boolean;
+  help: boolean;
+  version: boolean;
 }
 
 /** Read the package version from the manifest one directory above this module. */
@@ -44,33 +92,283 @@ export function version(): string {
 }
 
 /**
- * Parse argv and produce a result. Pure: no I/O side effects, no process.exit —
- * the caller writes the streams and sets the exit code. Scaffold stage handles
- * only --help and --version; upload is not yet implemented.
+ * Read `git remote get-url origin`, or null if git is absent / not a repo / no
+ * origin. The second (and last) of the tool's two subprocess calls: array args
+ * (no shell, no user input), 5s timeout, stderr discarded so git's own messages
+ * never reach our output. The returned URL is parsed structurally by
+ * parseGitRemoteUrl (which rejects non-github.com hosts and redacts credentials).
  */
-export function run(argv: string[]): CliResult {
-  if (argv.includes("-h") || argv.includes("--help")) {
-    return { stdout: HELP, stderr: "", exitCode: 0 };
+function gitRemoteOrigin(): string | null {
+  try {
+    const out = execFileSync("git", ["remote", "get-url", "origin"], {
+      encoding: "utf8",
+      timeout: 5000,
+      stdio: ["ignore", "pipe", "ignore"],
+    });
+    const trimmed = out.trim();
+    return trimmed === "" ? null : trimmed;
+  } catch {
+    return null;
   }
-  if (argv.includes("-v") || argv.includes("--version")) {
-    return { stdout: `${version()}\n`, stderr: "", exitCode: 0 };
-  }
-  return {
-    stdout: "",
-    stderr:
-      "gh-imgup: upload is not yet implemented — scaffold only. See AGENTS.md.\n",
-    exitCode: 1,
-  };
 }
 
-/** True when this module was invoked directly as the program entry point. */
+/**
+ * Parse argv into flags and positional files. Supports `--flag value`,
+ * `--flag=value`, the `-h/-v/-m` short forms, and `--` to end option parsing.
+ * Unknown options and value flags missing their value are hard errors.
+ */
+function parseArgs(argv: string[]): ParsedArgs {
+  const out: ParsedArgs = {
+    files: [],
+    json: false,
+    raw: false,
+    cleanup: false,
+    help: false,
+    version: false,
+  };
+  for (let i = 0; i < argv.length; i += 1) {
+    const tok = argv[i] ?? "";
+    if (tok === "--") {
+      out.files.push(...argv.slice(i + 1));
+      break;
+    }
+    let key = tok;
+    let inlineVal: string | undefined;
+    if (tok.startsWith("--") && tok.includes("=")) {
+      const eq = tok.indexOf("=");
+      key = tok.slice(0, eq);
+      inlineVal = tok.slice(eq + 1);
+    }
+    const noValue = () => {
+      if (inlineVal !== undefined) {
+        throw new Error(`Option ${key} does not take a value`);
+      }
+    };
+    const takeValue = (): string => {
+      if (inlineVal !== undefined) return inlineVal;
+      const next = argv[i + 1];
+      if (next === undefined) throw new Error(`Option ${key} requires a value`);
+      i += 1;
+      return next;
+    };
+    switch (key) {
+      case "-h":
+      case "--help":
+        noValue();
+        out.help = true;
+        break;
+      case "-v":
+      case "--version":
+        noValue();
+        out.version = true;
+        break;
+      case "--json":
+        noValue();
+        out.json = true;
+        break;
+      case "--raw":
+        noValue();
+        out.raw = true;
+        break;
+      case "--cleanup":
+        noValue();
+        out.cleanup = true;
+        break;
+      case "--repo":
+        out.repo = takeValue();
+        break;
+      case "--pr":
+        out.pr = takeValue();
+        break;
+      case "--issue":
+        out.issue = takeValue();
+        break;
+      case "-m":
+      case "--message":
+        out.message = takeValue();
+        break;
+      case "--tag":
+        out.tag = takeValue();
+        break;
+      case "--max-size":
+        out.maxSize = takeValue();
+        break;
+      default:
+        if (tok.startsWith("-") && tok !== "-") {
+          throw new Error(`Unknown option: ${tok}`);
+        }
+        out.files.push(tok);
+    }
+  }
+  return out;
+}
+
+/** Resolve the target repo from --repo, else by inferring from the git origin. */
+function resolveRepo(args: ParsedArgs, gitRemote: () => string | null): Repo {
+  if (args.repo !== undefined) {
+    return validateRepo(args.repo);
+  }
+  const remote = gitRemote();
+  if (remote === null) {
+    throw new Error(
+      "Could not determine the repository: no --repo given and no git " +
+        "'origin' remote found. Pass --repo owner/repo.",
+    );
+  }
+  return parseGitRemoteUrl(remote);
+}
+
+/** The chosen stdout format; --json and --raw are mutually exclusive (checked earlier). */
+function outputFormat(args: ParsedArgs): OutputFormat {
+  if (args.json) return "json";
+  if (args.raw) return "raw";
+  return "markdown";
+}
+
+/**
+ * Parse argv and run the upload (and optional comment) flow, returning the
+ * streams and exit code rather than touching them — the caller writes stdout/
+ * stderr and sets the code. stdout carries only the machine-parseable result and
+ * ONLY on full success (fail-fast: one upload failure aborts with empty stdout,
+ * exit 1, and already-uploaded assets left for --cleanup). Every error is token-
+ * sanitized before reaching stderr.
+ */
+export async function run(
+  argv: string[],
+  deps: RunDeps = {},
+): Promise<CliResult> {
+  const stderr: string[] = [];
+  const warn = (m: string) => {
+    stderr.push(m);
+  };
+  let token = "";
+  try {
+    const args = parseArgs(argv);
+    if (args.help) return { stdout: HELP, stderr: "", exitCode: 0 };
+    if (args.version)
+      return { stdout: `${version()}\n`, stderr: "", exitCode: 0 };
+    if (args.cleanup) {
+      return {
+        stdout: "",
+        stderr:
+          "gh-imgup: --cleanup is not yet implemented. Use `gh release delete` for now.\n",
+        exitCode: 1,
+      };
+    }
+    if (args.json && args.raw) {
+      throw new Error("--json and --raw are mutually exclusive.");
+    }
+    if (args.pr !== undefined && args.issue !== undefined) {
+      throw new Error("--pr and --issue are mutually exclusive.");
+    }
+    if (args.files.length === 0) {
+      throw new Error("No image files given. See --help for usage.");
+    }
+
+    const resolved = resolveToken({
+      env: deps.env,
+      readGhToken: deps.readGhToken,
+    });
+    token = resolved.token;
+    if (resolved.source === "gh") warn(BROAD_SCOPE_WARNING);
+
+    const repo = resolveRepo(args, deps.gitRemote ?? gitRemoteOrigin);
+    const tag = validateTag(args.tag ?? DEFAULT_TAG);
+    const maxBytes =
+      validateMaxSize(args.maxSize ?? DEFAULT_MAX_SIZE_MB) * 1024 * 1024;
+    const commentNumber =
+      args.pr !== undefined
+        ? validateNumber(args.pr)
+        : args.issue !== undefined
+          ? validateNumber(args.issue)
+          : undefined;
+
+    // Validate every file up front (fail-fast) before touching the network.
+    const files: ImageFile[] = args.files.map((f) =>
+      validateImageFile(f, maxBytes),
+    );
+
+    const releaseId = await ensureRelease(token, repo, tag, {
+      fetchImpl: deps.fetchImpl,
+      warn,
+    });
+
+    // Upload sequentially, fail-fast: the first failure aborts (its error
+    // propagates) — successes already on the release are left for --cleanup.
+    const results: UploadResult[] = [];
+    for (const file of files) {
+      const result = await uploadAsset(token, repo, releaseId, tag, file, {
+        fetchImpl: deps.fetchImpl,
+        warn,
+      });
+      results.push(result);
+      warn(sanitize(token, `✓ Uploaded ${result.filename}\n`));
+    }
+
+    if (commentNumber !== undefined) {
+      const caption = args.message ? `${args.message}\n\n` : "";
+      const body = caption + render(results, "markdown");
+      const comment = await postComment(token, repo, commentNumber, body, {
+        fetchImpl: deps.fetchImpl,
+        warn,
+      });
+      warn(
+        sanitize(
+          token,
+          `✓ Commented on #${comment.number}${comment.url ? `: ${comment.url}` : ""}\n`,
+        ),
+      );
+    }
+
+    return {
+      stdout: render(results, outputFormat(args)),
+      stderr: stderr.join(""),
+      exitCode: 0,
+    };
+  } catch (err) {
+    // A validation/arg error can echo a user-supplied path or flag that encodes
+    // the token (e.g. a file literally named ghp%5FTOK.png); sanitize() strips
+    // only the literal form, so redact the whole message if it decodes to the
+    // token at any depth. This catch is the one chokepoint for every such error.
+    const message = sanitize(token, err);
+    const safe =
+      token && decodesToToken(message, token)
+        ? "[error redacted: it referenced the GitHub token]"
+        : message;
+    stderr.push(`gh-imgup: ${safe}\n`);
+    return { stdout: "", stderr: stderr.join(""), exitCode: 1 };
+  }
+}
+
+/**
+ * True when this module was invoked directly as the program entry point.
+ * npm/npx install the `bin` via a `.bin/gh-imgup` symlink, so process.argv[1] is
+ * the symlink path while import.meta.url resolves to the real dist/index.js — a
+ * plain string compare returns false there and the CLI would silently no-op.
+ * Resolve BOTH to their real paths (realpathSync is idempotent on a real path,
+ * and also handles --preserve-symlinks) before comparing.
+ */
 function isEntryPoint(): boolean {
-  return process.argv[1] === fileURLToPath(import.meta.url);
+  const invoked = process.argv[1];
+  if (!invoked) return false;
+  try {
+    return (
+      realpathSync(invoked) === realpathSync(fileURLToPath(import.meta.url))
+    );
+  } catch {
+    return false;
+  }
 }
 
 if (isEntryPoint()) {
-  const result = run(process.argv.slice(2));
-  if (result.stdout) process.stdout.write(result.stdout);
-  if (result.stderr) process.stderr.write(result.stderr);
-  process.exit(result.exitCode);
+  run(process.argv.slice(2))
+    .then((result) => {
+      if (result.stdout) process.stdout.write(result.stdout);
+      if (result.stderr) process.stderr.write(result.stderr);
+      process.exit(result.exitCode);
+    })
+    .catch(() => {
+      // run() handles its own errors; this is a last-resort guard.
+      process.exit(1);
+    });
 }

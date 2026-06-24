@@ -206,7 +206,13 @@ after(() => rmSync(dir, { recursive: true, force: true }));
 function imageFixture(name: string, contents: string): ImageFile {
   const filepath = join(dir, name);
   writeFileSync(filepath, Buffer.from(contents));
-  return { filepath, filename: name, mime: "image/png", size: contents.length };
+  return {
+    filepath,
+    filename: name,
+    mime: "image/png",
+    size: contents.length,
+    sha256: createHash("sha256").update(Buffer.from(contents)).digest("hex"),
+  };
 }
 
 const sha256 = (s: string) =>
@@ -388,6 +394,7 @@ test("uploadAsset sanitizes a file-read failure (token in the path)", async () =
     filename: `${TOKEN}.png`,
     mime: "image/png",
     size: 10,
+    sha256: "0".repeat(64), // irrelevant: rejected before the digest compare
   };
   const { impl, calls } = scriptedFetch(() => {
     throw new Error("fetch should not be reached when the read fails");
@@ -410,6 +417,7 @@ test("uploadAsset read failure echoes the code, not the token-bearing filepath",
     filename: "shot.png",
     mime: "image/png",
     size: 10,
+    sha256: "0".repeat(64), // irrelevant: rejected before the digest compare
   };
   const { impl, calls } = scriptedFetch(() => {
     throw new Error("fetch should not be reached when the read fails");
@@ -522,6 +530,7 @@ test("uploadAsset rejects an encoded-token filename before any file read", async
       filename: name,
       mime: "image/png",
       size: 10,
+      sha256: "0".repeat(64), // irrelevant: rejected before the digest compare
     };
     const { impl, calls } = scriptedFetch(() => {
       throw new Error("fetch should not be reached");
@@ -553,6 +562,7 @@ test("uploadAsset catches a token encoded past any fixed decode depth", async ()
     filename: name,
     mime: "image/png",
     size: 10,
+    sha256: "0".repeat(64), // irrelevant: rejected before the digest compare
   };
   const { impl, calls } = scriptedFetch(() => {
     throw new Error("fetch should not be reached");
@@ -643,6 +653,23 @@ test("uploadAsset rejects a file that grew after validation, before reading it",
   await assert.rejects(
     () => uploadAsset(TOKEN, REPO, 42, TAG, file, { fetchImpl: impl }),
     /changed after validation \(2 → 5 bytes\)/,
+  );
+  assert.equal(calls.length, 0);
+});
+
+test("uploadAsset rejects a SAME-LENGTH content swap after validation", async () => {
+  // The content-binding: validation fingerprinted "AAAAA"; the file is then
+  // replaced with different bytes of the SAME length, which the size recheck
+  // can't catch. uploadAsset must reject (digest != validation sha256) before
+  // uploading unreviewed content — no fetch.
+  const file = imageFixture("swap.png", "AAAAA"); // sha256 of AAAAA recorded
+  writeFileSync(file.filepath, Buffer.from("BBBBB")); // same length, new bytes
+  const { impl, calls } = scriptedFetch(() => {
+    throw new Error("fetch should not be reached");
+  });
+  await assert.rejects(
+    () => uploadAsset(TOKEN, REPO, 42, TAG, file, { fetchImpl: impl }),
+    /changed after validation/,
   );
   assert.equal(calls.length, 0);
 });

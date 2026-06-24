@@ -1,4 +1,5 @@
-import { statSync } from "node:fs";
+import { createHash } from "node:crypto";
+import { readFileSync, statSync } from "node:fs";
 import { basename } from "node:path";
 import { MIME, mimeFor } from "./upload.js";
 
@@ -172,6 +173,13 @@ export interface ImageFile {
   mime: string;
   /** Size in bytes (from stat, before reading). */
   size: number;
+  /**
+   * SHA-256 (hex) of the file contents AT VALIDATION TIME. uploadAsset re-reads
+   * and compares against this, so a file swapped between validation/review and
+   * upload — even to different bytes of the same length — is rejected rather
+   * than uploaded unreviewed. (The validate→upload content binding.)
+   */
+  sha256: string;
 }
 
 function megabytes(bytes: number): string {
@@ -221,5 +229,33 @@ export function validateImageFile(
     );
   }
 
-  return { filepath, filename, mime, size };
+  // Fingerprint the validated contents so the later upload can prove it's the
+  // same file (see ImageFile.sha256). Re-stat immediately before the read: a
+  // file grown past --max-size since the first stat must not be pulled into
+  // memory uncapped (a tiny stat->read window remains, as in uploadAsset). All
+  // fs errors echo the CODE only — never err.message, which embeds the path (it
+  // may carry an encoded token a literal sanitize would miss).
+  const readError = (err: unknown) =>
+    new Error(
+      `Cannot read file ${filepath}: ${(err as NodeJS.ErrnoException).code ?? "unknown error"}`,
+    );
+  let current: number;
+  try {
+    current = statSync(filepath).size;
+  } catch (err) {
+    throw readError(err);
+  }
+  if (current > maxBytes) {
+    throw new Error(
+      `File ${filepath} grew past the ${megabytes(maxBytes)}MB limit during validation; re-run.`,
+    );
+  }
+  let sha256: string;
+  try {
+    sha256 = createHash("sha256").update(readFileSync(filepath)).digest("hex");
+  } catch (err) {
+    throw readError(err);
+  }
+
+  return { filepath, filename, mime, size, sha256 };
 }

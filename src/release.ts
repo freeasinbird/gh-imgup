@@ -445,6 +445,19 @@ export async function uploadAsset(
     );
   }
   const localDigest = createHash("sha256").update(bytes).digest("hex");
+  // Bind the upload to the content validated up front: a file replaced between
+  // validateImageFile (which fingerprinted it) and now — even with different
+  // bytes of the SAME length, which the size recheck above can't catch — must
+  // not be uploaded unreviewed. Compare the just-computed digest to the
+  // validation-time one and fail closed before sending anything.
+  if (localDigest !== file.sha256) {
+    throw new Error(
+      sanitize(
+        token,
+        `File ${file.filename} changed after validation; re-run.`,
+      ),
+    );
+  }
   // displayName (token-redacted) was computed above; it becomes the public asset
   // name (in browser_download_url) and the returned filename (markdown alt).
   const { name: assetName, hex } = safeFilename(displayName);
