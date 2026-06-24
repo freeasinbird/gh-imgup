@@ -80,9 +80,10 @@ export function sanitize(token: string, err: unknown): string {
 const GITHUB_API_HOSTS = new Set(["api.github.com", "uploads.github.com"]);
 
 /**
- * `fetch()` for the GitHub API: enforces the two-host allowlist (invariant 4),
- * adds the auth, Accept, and API-version headers, and sanitizes the token out of
- * any thrown network error (invariant 3) before it propagates. Returns the raw
+ * `fetch()` for the GitHub API: requires HTTPS and enforces the two-host
+ * allowlist (invariant 4) before the bearer token is ever attached, adds the
+ * auth, Accept, and API-version headers, and sanitizes the token out of any
+ * thrown network error (invariant 3) before it propagates. Returns the raw
  * Response — callers inspect `.status` themselves, sanitizing non-ok error
  * messages with {@link sanitize}, since which statuses are errors is per-endpoint
  * (e.g. a 404 on get-release-by-tag is expected, not a failure).
@@ -95,19 +96,28 @@ export async function authedFetch(
   init: RequestInit = {},
   fetchImpl: typeof fetch = fetch,
 ): Promise<Response> {
-  if (!GITHUB_API_HOSTS.has(new URL(url).host)) {
+  const parsed = new URL(url);
+  // HTTPS-only: the token must never go out over plaintext, even to an allowed
+  // host that would redirect to HTTPS — the cleartext request leaks it first.
+  if (parsed.protocol !== "https:") {
+    throw new Error(`Refusing to send credentials over non-HTTPS URL: ${url}`);
+  }
+  if (!GITHUB_API_HOSTS.has(parsed.host)) {
     throw new Error(`Refusing to contact non-GitHub host in URL: ${url}`);
   }
+  // Normalize any HeadersInit form (object, Headers, tuple array) so a caller's
+  // header (e.g. the upload's Content-Type) is never dropped. Authorization is
+  // always ours — the chokepoint owns it and a caller cannot override it.
+  const headers = new Headers(init.headers);
+  if (!headers.has("Accept")) {
+    headers.set("Accept", "application/vnd.github+json");
+  }
+  if (!headers.has("X-GitHub-Api-Version")) {
+    headers.set("X-GitHub-Api-Version", "2022-11-28");
+  }
+  headers.set("Authorization", `Bearer ${token}`);
   try {
-    return await fetchImpl(url, {
-      ...init,
-      headers: {
-        Accept: "application/vnd.github+json",
-        "X-GitHub-Api-Version": "2022-11-28",
-        Authorization: `Bearer ${token}`,
-        ...init.headers,
-      },
-    });
+    return await fetchImpl(url, { ...init, headers });
   } catch (err) {
     throw new Error(sanitize(token, err));
   }

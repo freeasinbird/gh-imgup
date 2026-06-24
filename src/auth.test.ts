@@ -82,24 +82,40 @@ test("authedFetch adds auth, accept, and version headers", async () => {
     impl,
   );
   assert.equal(calls.length, 1);
-  const headers = calls[0]?.init.headers as Record<string, string>;
-  assert.equal(headers.Authorization, "Bearer ghp_TOK");
-  assert.equal(headers.Accept, "application/vnd.github+json");
-  assert.equal(headers["X-GitHub-Api-Version"], "2022-11-28");
+  const headers = new Headers(calls[0]?.init.headers);
+  assert.equal(headers.get("Authorization"), "Bearer ghp_TOK");
+  assert.equal(headers.get("Accept"), "application/vnd.github+json");
+  assert.equal(headers.get("X-GitHub-Api-Version"), "2022-11-28");
   assert.equal(calls[0]?.init.method, "POST");
 });
 
-test("authedFetch lets the caller add headers without dropping auth", async () => {
+test("authedFetch preserves a non-plain-object HeadersInit (Headers/array)", async () => {
+  // A Headers instance or tuple array must not be dropped by a naive spread —
+  // the upload's Content-Type rides through here.
+  for (const headerInit of [
+    new Headers({ "Content-Type": "image/png" }),
+    [["Content-Type", "image/png"]] as [string, string][],
+  ]) {
+    const { impl, calls } = recordingFetch(new Response("ok"));
+    await authedFetch(
+      "ghp_TOK",
+      "https://uploads.github.com/repos/o/r/releases/1/assets?name=x.png",
+      { method: "POST", headers: headerInit },
+      impl,
+    );
+    const headers = new Headers(calls[0]?.init.headers);
+    assert.equal(headers.get("Content-Type"), "image/png");
+    assert.equal(headers.get("Authorization"), "Bearer ghp_TOK");
+  }
+});
+
+test("authedFetch refuses non-HTTPS URLs and never calls fetch", async () => {
   const { impl, calls } = recordingFetch(new Response("ok"));
-  await authedFetch(
-    "ghp_TOK",
-    "https://uploads.github.com/repos/o/r/releases/1/assets?name=x.png",
-    { method: "POST", headers: { "Content-Type": "image/png" } },
-    impl,
+  await assert.rejects(
+    () => authedFetch("t", "http://api.github.com/x", {}, impl),
+    /non-HTTPS/,
   );
-  const headers = calls[0]?.init.headers as Record<string, string>;
-  assert.equal(headers["Content-Type"], "image/png");
-  assert.equal(headers.Authorization, "Bearer ghp_TOK");
+  assert.equal(calls.length, 0);
 });
 
 test("authedFetch returns the underlying response on success", async () => {
