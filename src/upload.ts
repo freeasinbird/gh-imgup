@@ -38,7 +38,11 @@ export interface UploadResult {
 /** Machine-parseable stdout formats. Mutually exclusive; default is markdown. */
 export type OutputFormat = "markdown" | "raw" | "json";
 
-/** Alt text for an image: the original filename stem, without extension or hex suffix. */
+/**
+ * Alt text for an image: the original filename with its extension removed. The
+ * collision-avoidance hex suffix lives in the asset URL, not in `filename`, so
+ * it never appears here.
+ */
 function altText(filename: string): string {
   return basename(filename, extname(filename));
 }
@@ -48,10 +52,17 @@ function altText(filename: string): string {
  * user-controlled filename, so an unescaped `]` would close the `![…]` early and
  * let a crafted name inject its own image target (e.g. a tracking pixel) into a
  * PR/issue comment. Backslash-escaping `\`, `[`, and `]` keeps the alt inert;
- * newlines (which would also break the construct) collapse to spaces.
+ * C0 control characters and the Unicode line/paragraph separators (which would
+ * break the single-line construct or muddy machine-parseable stdout) collapse to
+ * a single space.
  */
 function escapeAltText(text: string): string {
-  return text.replace(/[\\[\]]/g, "\\$&").replace(/[\r\n]+/g, " ");
+  return (
+    text
+      .replace(/[\\[\]]/g, "\\$&")
+      // biome-ignore lint/suspicious/noControlCharactersInRegex: matching control chars is the intent — strip them from user-controlled alt text.
+      .replace(/[\u0000-\u001f\u2028\u2029]+/g, " ")
+  );
 }
 
 /**

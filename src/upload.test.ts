@@ -86,6 +86,14 @@ test("markdown render angle-wraps a URL containing spaces or parens", () => {
   );
 });
 
+test("markdown render collapses control characters in alt text", () => {
+  // A filename can legally contain tabs / other control chars; they must not
+  // reach stdout verbatim. They collapse to a single space.
+  const tabbed: UploadResult = { ...one, filename: "a\tbc.png" };
+  const out = render([tabbed], "markdown");
+  assert.equal(out, `![a bc](${one.url})\n`);
+});
+
 test("raw render is one bare URL per line", () => {
   assert.equal(render([one], "raw"), `${one.url}\n`);
   assert.equal(render([one, two], "raw"), `${one.url}\n${two.url}\n`);
