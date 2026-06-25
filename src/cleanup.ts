@@ -1,7 +1,7 @@
 import { createInterface } from "node:readline/promises";
 import { apiError, redactField } from "./apierr.js";
 import { API, authedFetch, repoPath, sanitize } from "./auth.js";
-import { renderInlineMarkdown } from "./github.js";
+import { renderInlineMarkdown } from "./markdown.js";
 import { deleteAsset, isUsableAssetUrl, releaseId } from "./release.js";
 import type { Repo } from "./validate.js";
 

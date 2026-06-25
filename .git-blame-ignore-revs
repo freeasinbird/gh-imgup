@@ -1,0 +1,6 @@
+# Commits to ignore in git blame (reformats, renames, and pure moves).
+# Activate locally with:
+#   git config blame.ignoreRevsFile .git-blame-ignore-revs
+
+# Extract shared Markdown helpers into markdown.ts (near-verbatim move)
+3c46078f320e7b59fbddcfbb249c080ba2101c8c

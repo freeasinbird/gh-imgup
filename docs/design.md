@@ -272,23 +272,16 @@ The `String(n) !== input` check rejects inputs like `42abc` that `parseInt` woul
 
 ```typescript
 function parseGitRemoteUrl(remote: string): { owner: string; name: string } {
-  // https://github.com/owner/repo.git
-  // https://github.com/owner/repo
-  // git@github.com:owner/repo.git
-  const https = remote.match(/github\.com\/([^/]+)\/([^/.]+)/);
-  const ssh = remote.match(/github\.com:([^/]+)\/([^/.]+)/);
-  const match = https ?? ssh;
-  if (!match) {
-    throw new Error(
-      `Could not parse GitHub repo from remote: ${remote}\n` +
-      `Only github.com remotes are supported. Pass --repo owner/repo explicitly.`
-    );
-  }
-  return validateRepo(`${match[1]}/${match[2]}`);
+  // URL remotes: https://github.com/owner/repo(.git), ssh://git@github.com/o/r
+  // SCP-like SSH: git@github.com:owner/repo(.git)
+  // Allowed URL schemes are real git transports: https, http, ssh, git.
+  // The host must parse structurally to github.com (case-insensitive).
+  // Error messages redact any remote userinfo before echoing it.
+  // Owner/repo are then validated by validateRepo().
 }
 ```
 
-Explicitly rejects GitHub Enterprise URLs (non-`github.com` hosts) since API endpoints are hardcoded to `api.github.com`. Tells the user to pass `--repo` explicitly.
+The parser uses the URL grammar for URL remotes and the scp-like SSH grammar for `git@github.com:owner/repo`, then requires the parsed host to be exactly `github.com` (case-insensitive). This rejects host spoofs (`github.com.evil.com`, path-embedded `@github.com`, non-git schemes on the right host) and GitHub Enterprise URLs, since API endpoints are hardcoded to `api.github.com` / `uploads.github.com`. Parse failures redact credentials embedded in the remote before showing guidance to pass `--repo owner/repo` explicitly.
 
 ---
 
@@ -394,7 +387,7 @@ Options:
   --issue <number>      Comment on an issue
   -m, --message <text>  Caption to include
   --json                JSON output to stdout
-  --raw                 Raw URL only
+  --raw                 Raw URL(s) only
   --tag <name>          Release tag (default: _gh-imgup, must start with _)
   --max-size <MB>       Max file size in MB (default: 25)
   --cleanup             Delete unreferenced assets (interactive, see Cleanup)
@@ -420,7 +413,7 @@ Environment:
 ![screenshot](https://github.com/owner/repo/releases/download/_gh-imgup/screenshot-a1b2c3d4.png)
 
 # --json
-{"url":"https://...","markdown":"![screenshot](...)","filename":"screenshot.png","repo":"owner/repo","digest":"sha256:abc123..."}
+[{"url":"https://...","markdown":"![screenshot](...)","filename":"screenshot.png","repo":"owner/repo","digest":"sha256:abc123..."}]
 
 # --raw
 https://github.com/owner/repo/releases/download/_gh-imgup/screenshot-a1b2c3d4.png
@@ -432,26 +425,26 @@ https://github.com/owner/repo/releases/download/_gh-imgup/screenshot-a1b2c3d4.pn
 
 ### Safe cleanup: `--cleanup`
 
-Scans all issues and PRs in the repo (open and closed) for asset URLs referencing the `_gh-imgup` release. Deletes only assets whose URLs appear nowhere in issue/PR bodies or comments. Always interactive — prompts before deleting.
+Scans repo-local GitHub surfaces for asset URLs referencing the `_gh-imgup` release: issue/PR bodies, their comments, inline PR review comments, commit comments, and release notes. Deletes only assets whose URL or filename appears nowhere in the scanned surfaces. Always interactive — prompts before deleting.
 
 ```
 gh-imgup --cleanup --repo owner/repo
 
-Scanning issues and PRs for referenced images...
-Found 47 assets in _gh-imgup release.
-12 are still referenced in issues/PRs.
-35 are unreferenced.
+Scanning issues, PRs, comments, and release notes for referenced images...
+Found 47 asset(s); 12 referenced, 35 unreferenced.
 
-⚠ This scan covers issue/PR bodies and comments only.
-  Images referenced in README, wiki, or other repo files are NOT detected.
+⚠ This scan covers issue/PR bodies, their comments (including inline review
+  comments), commit comments, and release notes only — NOT PR review summary
+  bodies, wikis, README or other repo files, Discussions, or references from
+  forks, other repos, or off GitHub.
   Review the list before confirming.
 
 Delete 35 unreferenced assets? [y/N]
 ```
 
-**Scope limitation.** The scan covers issue bodies, PR bodies, and all comments on both. It does **not** cover: wiki pages, README.md, other markdown files in the repo, or discussion posts. This is documented in the prompt itself so the user sees it at the point of decision. There is no `--yes` flag — cleanup always requires human confirmation because the scan is inherently incomplete.
+**Scope limitation.** The scan covers issue/PR bodies, issue/PR comments (including inline review comments), commit comments, and release notes. It does **not** cover: PR review summary bodies, wiki pages, README.md or other markdown files in the repo, Discussions, forks, other repos, or off-GitHub references. This is documented in the prompt itself so the user sees it at the point of decision. There is no `--yes` flag — cleanup always requires human confirmation because the scan is inherently incomplete.
 
-**Requires `issues:read` scope** in addition to `contents:write` for asset deletion. The tool checks for this and reports the missing scope if the scan fails with 403.
+**Requires access to the scanned surfaces** plus `contents:write` for asset deletion. The tool reports the operation-specific missing-scope hint when GitHub returns 401/403.
 
 ### Manual full deletion
 
@@ -483,7 +476,7 @@ try {
 }
 ```
 
-See [Git remote URL parsing](#git-remote-url-parsing) for the parser, which handles HTTPS and SSH formats and explicitly rejects non-`github.com` hosts.
+See [Git remote URL parsing](#git-remote-url-parsing) for the parser, which handles URL and scp-like SSH formats, redacts embedded credentials on errors, and explicitly rejects non-`github.com` hosts.
 
 ---
 
@@ -628,8 +621,10 @@ gh-imgup/
 ├── src/
 │   ├── index.ts          # CLI arg parsing, orchestration
 │   ├── auth.ts           # Token resolution, scope warnings, error sanitization
+│   ├── apierr.ts         # API error redaction and response-detail bounds
 │   ├── release.ts        # Create-or-get release, upload asset, verify digest
 │   ├── github.ts         # Comment on PR/issue
+│   ├── markdown.ts       # Markdown escaping and rendered-inline normalization
 │   ├── validate.ts       # Repo, tag, number, file, MIME, remote URL parsing
 │   ├── cleanup.ts        # Scan issues/PRs for references, interactive deletion
 │   └── upload.ts         # Types, MIME allowlist, output formatters
@@ -670,12 +665,14 @@ All three channels point at the same compiled code. The skill directory and exte
 
 ## Implementation
 
-~400 lines of TypeScript across 7 files. Zero runtime dependencies. The entire audit surface:
+About 2,500 lines of non-test TypeScript across 9 files. Zero runtime dependencies. The entire audit surface:
 
 - `index.ts` — CLI arg parsing, orchestration
 - `auth.ts` — token resolution, scope warning, error sanitization
+- `apierr.ts` — API error redaction and response-detail bounds
 - `release.ts` — create-or-get release, upload asset, verify digest
 - `github.ts` — comment on PR/issue
+- `markdown.ts` — Markdown escaping and rendered-inline normalization
 - `validate.ts` — repo format, tag prefix, issue number, file stat/MIME, remote URL parsing
 - `cleanup.ts` — scan all issues/PRs for referenced assets, interactive deletion
 - `upload.ts` — types, MIME allowlist, markdown/JSON formatters

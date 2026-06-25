@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { readFileSync, statSync } from "node:fs";
+import { closeSync, openSync, readSync, statSync } from "node:fs";
 import { basename } from "node:path";
 import { MIME, mimeFor } from "./upload.js";
 
@@ -186,10 +186,52 @@ function megabytes(bytes: number): string {
   return (bytes / (1024 * 1024)).toFixed(1);
 }
 
+const HASH_CHUNK_BYTES = 64 * 1024;
+
+/** Hash a file without ever reading more than maxBytes + 1 into memory. */
+function sha256FileBounded(
+  filepath: string,
+  maxBytes: number,
+): {
+  bytes: number;
+  sha256: string;
+} {
+  const fd = openSync(filepath, "r");
+  const hash = createHash("sha256");
+  const chunkSize = Math.max(1, Math.min(HASH_CHUNK_BYTES, maxBytes + 1));
+  const chunk = Buffer.allocUnsafe(chunkSize);
+  let total = 0;
+  try {
+    while (true) {
+      const remaining = maxBytes + 1 - total;
+      if (remaining <= 0) {
+        throw new Error("grew past limit");
+      }
+      const read = readSync(
+        fd,
+        chunk,
+        0,
+        Math.min(chunk.length, remaining),
+        null,
+      );
+      if (read === 0) break;
+      total += read;
+      if (total > maxBytes) {
+        throw new Error("grew past limit");
+      }
+      hash.update(chunk.subarray(0, read));
+    }
+  } finally {
+    closeSync(fd);
+  }
+  return { bytes: total, sha256: hash.digest("hex") };
+}
+
 /**
- * Validate an image file by stat (no read): exists → is a regular file →
- * non-empty → within the size limit → allowlisted MIME. Statting before reading
- * means an oversized file is rejected without loading it into memory.
+ * Validate an image file by stat plus bounded chunked hashing: exists → is a
+ * regular file → non-empty → within the size limit → allowlisted MIME. Statting
+ * before hashing rejects already-oversized files immediately; the bounded hash
+ * closes the stat→read race without loading the whole file into memory.
  */
 export function validateImageFile(
   filepath: string,
@@ -230,11 +272,11 @@ export function validateImageFile(
   }
 
   // Fingerprint the validated contents so the later upload can prove it's the
-  // same file (see ImageFile.sha256). Re-stat immediately before the read: a
-  // file grown past --max-size since the first stat must not be pulled into
-  // memory uncapped (a tiny stat->read window remains, as in uploadAsset). All
-  // fs errors echo the CODE only — never err.message, which embeds the path (it
-  // may carry an encoded token a literal sanitize would miss).
+  // same file (see ImageFile.sha256). Re-stat immediately before hashing, then
+  // read in bounded chunks so a file grown past --max-size since the stat cannot
+  // be pulled into memory uncapped. All fs errors echo the CODE only — never
+  // err.message, which embeds the path (it may carry an encoded token a literal
+  // sanitize would miss).
   const readError = (err: unknown) =>
     new Error(
       `Cannot read file ${filepath}: ${(err as NodeJS.ErrnoException).code ?? "unknown error"}`,
@@ -250,12 +292,22 @@ export function validateImageFile(
       `File ${filepath} grew past the ${megabytes(maxBytes)}MB limit during validation; re-run.`,
     );
   }
-  let sha256: string;
+  let hashed: { bytes: number; sha256: string };
   try {
-    sha256 = createHash("sha256").update(readFileSync(filepath)).digest("hex");
+    hashed = sha256FileBounded(filepath, maxBytes);
   } catch (err) {
+    if (err instanceof Error && err.message === "grew past limit") {
+      throw new Error(
+        `File ${filepath} grew past the ${megabytes(maxBytes)}MB limit during validation; re-run.`,
+      );
+    }
     throw readError(err);
   }
+  if (hashed.bytes !== size) {
+    throw new Error(
+      `File ${filepath} changed during validation (${size} → ${hashed.bytes} bytes); re-run.`,
+    );
+  }
 
-  return { filepath, filename, mime, size, sha256 };
+  return { filepath, filename, mime, size, sha256: hashed.sha256 };
 }
