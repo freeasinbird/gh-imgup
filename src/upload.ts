@@ -1,4 +1,5 @@
 import { basename, extname } from "node:path";
+import { escapeAltText } from "./markdown.js";
 
 /**
  * Strict extension → MIME allowlist. Fixed map, never inferred: anything not a
@@ -45,24 +46,6 @@ export type OutputFormat = "markdown" | "raw" | "json";
  */
 function altText(filename: string): string {
   return basename(filename, extname(filename));
-}
-
-/**
- * Escape Markdown link-structural characters in alt text. The stem is a
- * user-controlled filename, so an unescaped `]` would close the `![…]` early and
- * let a crafted name inject its own image target (e.g. a tracking pixel) into a
- * PR/issue comment. Backslash-escaping `\`, `[`, and `]` keeps the alt inert;
- * C0 control characters and the Unicode line/paragraph separators (which would
- * break the single-line construct or muddy machine-parseable stdout) collapse to
- * a single space.
- */
-function escapeAltText(text: string): string {
-  return (
-    text
-      .replace(/[\\[\]]/g, "\\$&")
-      // biome-ignore lint/suspicious/noControlCharactersInRegex: matching control chars is the intent — strip them from user-controlled alt text.
-      .replace(/[\u0000-\u001f\u2028\u2029]+/g, " ")
-  );
 }
 
 /**
