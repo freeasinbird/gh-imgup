@@ -102,40 +102,80 @@ enforced. Violating one is a security regression, not a style nit.
 
 1. **GitHub API access is `fetch()`-only — no shell for GitHub ops.**
    Prevents shell injection structurally rather than defending with
-   escaping. The tool makes exactly **two** subprocess calls ever —
+   escaping. The compiled CLI makes exactly **two** subprocess calls ever —
    `execFileSync('gh', ['auth', 'token'])` and
    `execFileSync('git', ['remote', 'get-url', 'origin'])` — both with array
    args (no shell), no user input in the array, guarded by try/catch and a
    5s timeout. Adding a third subprocess call, or string-interpolating into
-   either, breaks the invariant.
+   either, breaks the invariant. (The `gh`-extension wrapper is a separate
+   thin bootstrap shell script that builds/locates `dist/` and forwards args
+   to `node`; it interpolates no user input. Scope security claims to the
+   compiled CLI vs. the wrapper accordingly — docs that conflate them are
+   wrong.)
 
 2. **Zero runtime dependencies.** Keeps the supply-chain audit surface to
-   the tool itself plus Node built-ins. Enforced by `package.json` having
-   an empty `dependencies` block; reviewers reject any runtime dep.
+   the tool itself plus Node built-ins. Enforced by `package.json` declaring
+   no runtime `dependencies`; reviewers reject any runtime dep.
 
-3. **The token never leaks.** Every API error path strips the token value
-   from the message before it reaches stderr, CI logs, or agent context
-   (`msg.replaceAll(token, '[REDACTED]')`). Any new error path that prints
-   an API response must sanitize first.
+3. **No credential leaks in output.** Every error/echo path strips
+   credentials before they reach stderr, CI logs, or agent context — both
+   the resolved API token AND any credentials embedded in a git-remote URL
+   (userinfo). Error-path redaction is decode-aware: a value is redacted if
+   it decodes to the token literally or through `%XX` / JS-JSON `\uXXXX`
+   escapes, and control characters (C0/DEL/C1, line/paragraph separators)
+   are collapsed so a tampered response can't forge log lines. These defenses
+   live in `apierr.ts` (`sanitize` / `decodesToToken` / `redactField` /
+   `redactBody`); any new path that prints an API response or a
+   response-derived value must route through them. Separately, the PUBLIC
+   comment surface refuses to post a body whose token appears in a *rendered*
+   form — HTML entities (named/numeric/zero-padded) or backslash escapes —
+   via `github.ts` `renderInlineMarkdown` (the normalization cleanup matching
+   also uses). That is a refusal, not error redaction: `apierr.ts` does not
+   decode HTML entities, so don't claim the error path does.
 
-4. **No third-party network destinations.** Requests go to exactly
-   `api.github.com` and `uploads.github.com`. There is no fallback host;
-   missing/invalid credentials fail loudly. Never add an alternative upload
-   destination.
+4. **No third-party destinations; HTTPS-only; no client redirects.**
+   Requests go to exactly `api.github.com` and `uploads.github.com`, over
+   HTTPS (the token never traverses plaintext, even to an allowed host),
+   with `redirect: 'error'` (a redirect elsewhere fails rather than being
+   silently followed). The `Link` rel=next pagination URL re-enters the same
+   host allowlist. There is no fallback host; missing/invalid credentials
+   fail loudly. Never add an alternative destination.
 
 5. **Strict MIME allowlist, no inference.** Only `.png/.jpg/.jpeg/.gif/.webp`
    map to fixed MIME types. No content sniffing, no `application/octet-stream`
    fallback. SVG is excluded (active-content format); if ever added it goes
    behind an explicit `--allow-svg` flag with a warning.
 
-6. **Upload integrity is verified.** Compare local SHA-256 against the API
-   `digest`; on mismatch, delete the asset and fail. If the server omits a
+6. **Upload integrity is verified end-to-end.** The file's SHA-256 is
+   recorded at validation and the upload refuses if the bytes changed
+   between validation and read (defeats a same-length content swap); after
+   upload, the local SHA-256 is compared against the API `digest` and, on
+   mismatch, the asset is deleted and the run fails. If the server omits a
    digest, warn on stderr (don't silently pass).
 
 7. **Output contract: stdout is machine-parseable only.** Markdown, raw
-   URL, or JSON to stdout; all progress, warnings, and errors to stderr.
-   Exit 0 only when every upload succeeded. Don't print human chatter to
-   stdout.
+   URL(s), or JSON to stdout — `--json` is **always a JSON array** (one
+   object per file, even for a single file) so consumers parse one stable
+   shape; all progress, warnings, and errors to stderr. Exit 0 only when
+   every upload succeeded. Don't print human chatter to stdout.
+
+8. **On a destructive path, match the fully-decoded form and fail toward
+   keeping.** When deciding whether an asset may be DELETED by matching it
+   against rendered/encoded text (its URL/name vs. an issue/PR body),
+   normalize both sides through the full decode stack GitHub can apply —
+   raw, Markdown-rendered (named + numeric HTML entities, backslash
+   escapes), and percent-encoding (case-insensitive, multi-byte UTF-8) — and
+   treat any ambiguity as *referenced* (keep). Over-decoding only over-keeps
+   (safe); a missed reference deletes a live image (not). Non-ASCII-named
+   assets are kept rather than matched (the full named-entity table isn't
+   decoded). This biasing applies to the destructive/match direction only.
+
+9. **Trust no response-derived URL without re-binding it to the target.**
+   Before echoing or acting on a URL from an API response, validate it
+   against the target — host + owner/repo + path shape + id (e.g.
+   `isUsableAssetUrl`, `usableCommentUrl`), not just the host. A malformed,
+   off-repo, or tampered URL is rejected (dropped, or the run aborts on a
+   destructive path), never reported or deleted-by.
 
 ## Conventions & gotchas
 
@@ -148,16 +188,58 @@ enforced. Violating one is a security regression, not a style nit.
 - **Create-or-get is race-safe.** Two concurrent runs both see 404 and try
   to create; one gets 422. On 422 (tag exists), retry the GET; on 422 for
   any other reason, fail with the original error.
-- **`--cleanup` is always interactive — no `--yes`.** The reference scan
-  covers issue/PR bodies and comments only (not wiki, README, or other
-  files), so it can't guarantee completeness; a human must confirm. Full
-  release deletion is intentionally left to manual `gh release delete`.
+- **`--cleanup` is fail-safe and interactive — no `--yes`.** It scans five
+  repo-wide surfaces (issue/PR bodies, their comments, inline PR review
+  comments, commit comments, release notes) — not wikis, repo files,
+  Discussions, or off-GitHub — so it can't prove completeness. Any scan or
+  listing error aborts *before* any delete; matching only ever false-*keeps*
+  (never false-deletes); each asset is re-fetched by id to confirm it still
+  hosts the matched URL+name before deletion; it refuses to run without a TTY
+  (no piped `y`); and it keeps non-ASCII-named assets (invariant 8). Per-asset
+  manual removal is `gh release delete-asset <tag> <name>`; whole-release
+  deletion (`gh release delete`) is intentionally never automated — it breaks
+  every embedded image.
 - **Three distribution channels, one codebase.** npm package, `gh`
   extension wrapper (root `gh-imgup` shell script), and `skills/gh-imgup/SKILL.md`
   all point at the same compiled `dist/`. Keep them in sync.
 - **The SKILL.md pre-upload image review is a security control**, not
   documentation filler — it's the highest-impact mitigation in the system
   (the upload is secure; the risk is what gets uploaded). Don't weaken it.
+- **Case-fold what GitHub case-folds, exact-match what it doesn't.** owner,
+  repo, and hosts compare case-insensitively (GitHub canonicalizes them);
+  tags compare exactly. An over-strict `===` casing check on owner/repo would
+  false-reject and orphan a real upload.
+- **The per-upload hex suffix is the binding key.** `safeFilename` appends
+  random hex to the stem (`{stem}-{hex}.{ext}`); that suffix is how a returned
+  asset URL is proven to be ours. Exact-name matching was rejected because
+  GitHub's own filename sanitization can differ from the requested name.
+- **Verify risky changes adversarially.** Before committing a change on a
+  destructive path (`--cleanup`), a credential-leak surface, or a spot that
+  trusts a response-derived value, run an independent refute-first review and
+  record in the devlog which findings were confirmed, rejected-by-verification,
+  or accepted-by-decision. Scope this to those risk classes — not every change.
+- **Docs are audited against the code.** README/SECURITY/CHANGELOG claims
+  (counts, flags, behaviors, the subprocess/network guarantees) are checked
+  against `src/`, scoped to the surface they describe (the compiled CLI and
+  the `gh`-extension wrapper differ), and stated plainly — no marketing, no
+  unverifiable claims about other tools. Same "facts only" discipline as
+  Verification, applied to shipped docs.
+- **Authoring control-char / escape regexes through the edit tooling is
+  unreliable.** A character class with control chars, `\uXXXX` escapes, or a
+  `\x00-\x7f` range can have its escapes decoded into literal bytes (or the
+  range mangled) by the editor/JSON layer. Write such regexes via a node
+  script (or use `codePointAt` scans instead of escape ranges) and byte-audit.
+- **I/O is tested via dependency injection.** Modules take their side effects
+  (env, the gh/git subprocess, `fetch`, `warn`, `isTTY`, `confirm`) as
+  injectable params with production defaults; tests script a fake transport
+  *through* the real `authedFetch` and use real temp files for SHA-256. Chosen
+  over module-mocking because ESM named imports are read-only bindings.
+- **Drain devlog "to promote" notes before a docs/chore PR.** `grep` the
+  devlog for the open `promote` / `deferred` / `needs human` queue and either
+  promote what the PR's scope covers or explicitly re-defer — invariant notes
+  must not pile up unpromoted (they did, across nine entries, before this
+  cleanup). File maintainer-only actions as issues (`Refs #N`), not as devlog
+  headings that the start-of-session read won't resurface.
 
 <!-- agents-md:managed:branches -->
 
