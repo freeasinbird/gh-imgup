@@ -104,6 +104,25 @@ test("postComment refuses a body containing the token (literal or encoded)", asy
   }
 });
 
+test("postComment refuses a token hidden behind a multi-char ligature entity", async () => {
+  // &fjlig; renders to "fj": a body can spell a token containing "fj" via the
+  // ligature and slip a literal `includes` — the rendered check must catch it.
+  const ligToken = "ghp_fjK9";
+  const body = "leak ghp_&fjlig;K9 now"; // renders to "leak ghp_fjK9 now"
+  const { impl, calls } = scriptedFetch(() => {
+    throw new Error("fetch should not be reached");
+  });
+  await assert.rejects(
+    () => postComment(ligToken, REPO, 1, body, { fetchImpl: impl }),
+    (err: Error) => {
+      assert.match(err.message, /contains the GitHub token/);
+      assert.doesNotMatch(err.message, /fjK9/);
+      return true;
+    },
+  );
+  assert.equal(calls.length, 0);
+});
+
 test("postComment raises a sanitized error with the issues:write hint on 403", async () => {
   const { impl } = scriptedFetch(() => json({ message: "Forbidden" }, 403));
   await assert.rejects(

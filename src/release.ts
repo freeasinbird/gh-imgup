@@ -56,7 +56,7 @@ function isTagAlreadyExists(body: unknown): boolean {
  * created one always is), so we refuse to dump image assets into a real
  * published release that happens to use the tag rather than silently using it.
  */
-async function releaseId(
+export async function releaseId(
   token: string,
   res: Response,
   context: string,
@@ -228,7 +228,7 @@ function safeFilename(original: string): { name: string; hex: string } {
  * the URL to what we uploaded: a tampered 201 pointing at another repo, another
  * release tag, or elsewhere is not accepted.
  */
-function isUsableAssetUrl(
+export function isUsableAssetUrl(
   value: unknown,
   repo: Repo,
   tag: string,
