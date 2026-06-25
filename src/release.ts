@@ -2,12 +2,9 @@ import { createHash, randomUUID } from "node:crypto";
 import { readFileSync, statSync } from "node:fs";
 import { basename, extname } from "node:path";
 import { apiError, decodesToToken, redactBody, redactField } from "./apierr.js";
-import { authedFetch, sanitize } from "./auth.js";
+import { API, authedFetch, repoPath, sanitize, UPLOADS } from "./auth.js";
 import type { UploadResult } from "./upload.js";
 import type { ImageFile, Repo } from "./validate.js";
-
-const API = "https://api.github.com";
-const UPLOADS = "https://uploads.github.com";
 
 /** Prerelease metadata. Prerelease (not draft) is load-bearing: draft assets 404 by tag. */
 const RELEASE_NAME = "⚠️ Image assets — do not delete";
@@ -51,10 +48,6 @@ function isTagAlreadyExists(body: unknown): boolean {
   );
 }
 
-function repoPath(repo: Repo): string {
-  return `${encodeURIComponent(repo.owner)}/${encodeURIComponent(repo.name)}`;
-}
-
 /**
  * Read a numeric release id from a 2xx body, failing with operation context (and
  * sanitized) rather than letting a raw JSON parse error or a null/`.id` access
@@ -63,7 +56,7 @@ function repoPath(repo: Repo): string {
  * created one always is), so we refuse to dump image assets into a real
  * published release that happens to use the tag rather than silently using it.
  */
-async function releaseId(
+export async function releaseId(
   token: string,
   res: Response,
   context: string,
@@ -235,7 +228,7 @@ function safeFilename(original: string): { name: string; hex: string } {
  * the URL to what we uploaded: a tampered 201 pointing at another repo, another
  * release tag, or elsewhere is not accepted.
  */
-function isUsableAssetUrl(
+export function isUsableAssetUrl(
   value: unknown,
   repo: Repo,
   tag: string,
