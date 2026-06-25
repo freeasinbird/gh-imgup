@@ -54,14 +54,149 @@ function depsOf(deps: CleanupDeps): {
   };
 }
 
-/** The `rel="next"` URL from a GitHub `Link` pagination header, or null. */
-function nextLink(header: string | null): string | null {
+/** The raw `rel="next"` URL from a GitHub `Link` pagination header, or null. */
+function rawNextLink(header: string | null): string | null {
   if (!header) return null;
   for (const part of header.split(",")) {
     const m = part.match(/<([^>]+)>\s*;\s*rel="next"/);
     if (m?.[1]) return m[1];
   }
   return null;
+}
+
+/**
+ * Query parameters GitHub may add to a `rel="next"` URL beyond the original
+ * query: the page number plus an opaque cursor on some endpoints (the issues
+ * list returns `after`). These are exempt from the "preserve the original
+ * query" check; every other key must already have been in the start URL.
+ *
+ * The cursor is an ACCEPTED RESIDUAL. It is an opaque token, so nothing can
+ * validate it — a tampered `rel=next` could keep a contiguous `page` while its
+ * `after` points past intervening results, skipping a slice the scan never
+ * sees. We can't reject it (GitHub's issues `rel=next` always carries `after`;
+ * rejecting it re-breaks real pagination) and can't verify it. The alternative
+ * — ignoring it and self-paginating by `page` — trades the cursor's churn
+ * stability for skips under concurrent edits (the delete-a-live-asset
+ * direction) and loops on a future cursor-only endpoint. And the attack needs a
+ * response from authenticated api.github.com that could equally hide a
+ * reference in a page body, defeating the scan regardless. So we follow
+ * GitHub's cursor and bind everything else (host/repo/endpoint/query/page).
+ */
+const PAGINATION_PARAMS = new Set(["page", "after", "before"]);
+
+/**
+ * Split a GitHub list-endpoint path into the repo it targets and the endpoint
+ * beneath that repo. GitHub addresses a repo two ways and swaps between them
+ * freely: the named `/repos/{owner}/{repo}/…` form we request, and the numeric
+ * `/repositories/{id}/…` form it returns in `Link` headers. Returns null for any
+ * other path shape (so an off-target jump is rejected by the caller).
+ */
+function splitRepoPath(
+  pathname: string,
+):
+  | { kind: "named"; owner: string; repo: string; endpoint: string }
+  | { kind: "id"; id: string; endpoint: string }
+  | null {
+  const seg = pathname.split("/").filter((s) => s !== "");
+  const [first, owner, repo] = seg;
+  if (first === "repos" && owner !== undefined && repo !== undefined) {
+    return { kind: "named", owner, repo, endpoint: seg.slice(3).join("/") };
+  }
+  if (first === "repositories" && owner !== undefined) {
+    return { kind: "id", id: owner, endpoint: seg.slice(2).join("/") };
+  }
+  return null;
+}
+
+/**
+ * The validated `rel="next"` URL for the same GitHub list endpoint we started
+ * scanning. The host allowlist in authedFetch is necessary but not enough here:
+ * cleanup's safety depends on scanning THIS repo surface completely before
+ * deleting. A response-derived Link that jumps to another repo or a different
+ * endpoint, strips the original query (e.g. `state=all`), or loops would make
+ * the scan incomplete, so reject it and abort before the destructive phase.
+ *
+ * GitHub rewrites the named repo path to its numeric `/repositories/{id}` form
+ * in `Link` headers, so that rewrite is accepted — but only for THIS repo: the
+ * id is re-bound to `expectedRepoId` (resolved once up front), so a Link to
+ * `/repositories/<other-id>/…` is rejected just as a different named repo is. A
+ * different endpoint beneath the repo, or a non-repo path, is also rejected.
+ *
+ * The page number must advance by exactly one. Forward-only isn't enough: a Link
+ * that jumps from page 1 to page 999 (with no further `next`) would make the
+ * scan skip pages 2-998 and still look complete, leaving an asset referenced
+ * there eligible for deletion. Contiguity proves no page was skipped.
+ */
+function nextLink(
+  header: string | null,
+  startUrl: URL,
+  currentUrl: URL,
+  expectedRepoId: number,
+): string | null {
+  const raw = rawNextLink(header);
+  if (raw === null) return null;
+  let next: URL;
+  try {
+    next = new URL(raw);
+  } catch {
+    throw new Error("unsafe pagination URL");
+  }
+  if (
+    next.protocol !== startUrl.protocol ||
+    next.host !== startUrl.host ||
+    next.username !== "" ||
+    next.password !== "" ||
+    next.hash !== ""
+  ) {
+    throw new Error("unsafe pagination URL");
+  }
+
+  // Same repo, same endpoint beneath it — accepting GitHub's numeric-id rewrite.
+  const from = splitRepoPath(startUrl.pathname);
+  const to = splitRepoPath(next.pathname);
+  if (from === null || to === null || from.endpoint !== to.endpoint) {
+    throw new Error("unsafe pagination URL");
+  }
+  if (to.kind === "named") {
+    if (
+      from.kind !== "named" ||
+      to.owner.toLowerCase() !== from.owner.toLowerCase() ||
+      to.repo.toLowerCase() !== from.repo.toLowerCase()
+    ) {
+      throw new Error("unsafe pagination URL");
+    }
+  } else if (to.id !== String(expectedRepoId)) {
+    throw new Error("unsafe pagination URL");
+  }
+
+  const expectedKeys = new Set(startUrl.searchParams.keys());
+  for (const key of next.searchParams.keys()) {
+    if (!PAGINATION_PARAMS.has(key) && !expectedKeys.has(key)) {
+      throw new Error("unsafe pagination URL");
+    }
+  }
+  for (const key of expectedKeys) {
+    if (
+      !PAGINATION_PARAMS.has(key) &&
+      next.searchParams.getAll(key).join("\0") !==
+        startUrl.searchParams.getAll(key).join("\0")
+    ) {
+      throw new Error("unsafe pagination URL");
+    }
+  }
+  const page = next.searchParams.get("page");
+  const currentPage = Number(currentUrl.searchParams.get("page") ?? "1");
+  const nextPage = Number(page);
+  if (
+    page === null ||
+    !/^[1-9]\d*$/.test(page) ||
+    next.searchParams.getAll("page").length !== 1 ||
+    !Number.isSafeInteger(currentPage) ||
+    nextPage !== currentPage + 1
+  ) {
+    throw new Error("unsafe pagination URL");
+  }
+  return next.href;
 }
 
 /**
@@ -74,9 +209,21 @@ async function* listPages(
   startUrl: string,
   fetchImpl: typeof fetch,
   scope: string,
+  expectedRepoId: number,
 ): AsyncGenerator<unknown[]> {
+  const expected = new URL(startUrl);
+  const seen = new Set<string>();
   let next: string | null = startUrl;
   while (next) {
+    if (seen.has(next)) {
+      throw new Error(
+        sanitize(
+          token,
+          "Repository scan returned a repeated pagination URL; aborting without deleting.",
+        ),
+      );
+    }
+    seen.add(next);
     const res = await authedFetch(token, next, {}, fetchImpl);
     if (res.status !== 200) {
       throw await apiError(token, res, "Scan repository", scope);
@@ -91,7 +238,21 @@ async function* listPages(
       );
     }
     yield page;
-    next = nextLink(res.headers.get("link"));
+    try {
+      next = nextLink(
+        res.headers.get("link"),
+        expected,
+        new URL(next),
+        expectedRepoId,
+      );
+    } catch {
+      throw new Error(
+        sanitize(
+          token,
+          "Repository scan returned an unsafe pagination URL; aborting without deleting.",
+        ),
+      );
+    }
   }
 }
 
@@ -151,10 +312,17 @@ async function listAssets(
   relId: number,
   tag: string,
   fetchImpl: typeof fetch,
+  repoId: number,
 ): Promise<Asset[]> {
   const assets: Asset[] = [];
   const url = `${API}/repos/${repoPath(repo)}/releases/${relId}/assets?per_page=100`;
-  for await (const page of listPages(token, url, fetchImpl, "contents:read")) {
+  for await (const page of listPages(
+    token,
+    url,
+    fetchImpl,
+    "contents:read",
+    repoId,
+  )) {
     for (const item of page) {
       const a = item as {
         id?: unknown;
@@ -200,6 +368,7 @@ async function scanReferences(
   repo: Repo,
   fetchImpl: typeof fetch,
   onText: (text: string) => boolean,
+  repoId: number,
 ): Promise<void> {
   const base = `${API}/repos/${repoPath(repo)}`;
   const sources: Array<{ url: string; scope: string }> = [
@@ -210,7 +379,13 @@ async function scanReferences(
     { url: `${base}/releases?per_page=100`, scope: "contents:read" },
   ];
   for (const src of sources) {
-    for await (const page of listPages(token, src.url, fetchImpl, src.scope)) {
+    for await (const page of listPages(
+      token,
+      src.url,
+      fetchImpl,
+      src.scope,
+      repoId,
+    )) {
       for (const item of page) {
         // Fail closed on an unexpected item shape. A scanned item must be an
         // object whose `body` is a string (a blank body comes back as "" or
@@ -281,6 +456,44 @@ const SCOPE_NOTE =
   "  forks, other repos, or off GitHub. Review the list before confirming.\n";
 
 /**
+ * The target repository's numeric id, fetched once up front. GitHub returns
+ * pagination links in the `/repositories/{id}` form, so the scan must know THIS
+ * repo's id to re-bind those links (nextLink) and reject a jump to another
+ * repo's id. Fails closed: if the id can't be resolved to a positive safe
+ * integer, abort before the destructive phase rather than scan unverifiable
+ * pages.
+ */
+async function repoNumericId(
+  token: string,
+  repo: Repo,
+  fetchImpl: typeof fetch,
+): Promise<number> {
+  const res = await authedFetch(
+    token,
+    `${API}/repos/${repoPath(repo)}`,
+    {},
+    fetchImpl,
+  );
+  if (res.status !== 200) {
+    throw await apiError(token, res, "Look up repository", "metadata:read");
+  }
+  const got = (await res.json().catch(() => null)) as { id?: unknown } | null;
+  if (
+    typeof got?.id !== "number" ||
+    !Number.isSafeInteger(got.id) ||
+    got.id <= 0
+  ) {
+    throw new Error(
+      sanitize(
+        token,
+        "Could not resolve the repository id; aborting without deleting.",
+      ),
+    );
+  }
+  return got.id;
+}
+
+/**
  * Interactively delete assets on the `tag` release that no scanned surface
  * references. Fail-safe by construction: any scan/listing error aborts before
  * deleting anything (better an orphan than a deleted live image), the
@@ -329,7 +542,11 @@ export async function cleanup(
   // use an underscore tag — uploads would refuse it too.
   const relId = await releaseId(token, relRes, "Look up release", tag);
 
-  const assets = await listAssets(token, repo, relId, tag, fetchImpl);
+  // Resolve THIS repo's numeric id once: GitHub's pagination links use the
+  // /repositories/{id} form, and the scan re-binds them to this id (nextLink).
+  const repoId = await repoNumericId(token, repo, fetchImpl);
+
+  const assets = await listAssets(token, repo, relId, tag, fetchImpl, repoId);
   if (assets.length === 0) {
     say(`The "${tag}" release has no assets — nothing to clean up.\n`);
     return;
@@ -347,21 +564,27 @@ export async function cleanup(
   // together). The decoded forms catch references by the decoded name; the raw/
   // rendered forms catch the canonical URL. Missing any would delete a live image.
   const candidates = new Map<number, Asset>(assets.map((a) => [a.id, a]));
-  await scanReferences(token, repo, fetchImpl, (text) => {
-    const rendered = renderInlineMarkdown(text);
-    const haystacks = [
-      text,
-      rendered,
-      percentDecode(text),
-      percentDecode(rendered),
-    ];
-    for (const [id, a] of candidates) {
-      if (haystacks.some((h) => h.includes(a.url) || h.includes(a.name))) {
-        candidates.delete(id);
+  await scanReferences(
+    token,
+    repo,
+    fetchImpl,
+    (text) => {
+      const rendered = renderInlineMarkdown(text);
+      const haystacks = [
+        text,
+        rendered,
+        percentDecode(text),
+        percentDecode(rendered),
+      ];
+      for (const [id, a] of candidates) {
+        if (haystacks.some((h) => h.includes(a.url) || h.includes(a.name))) {
+          candidates.delete(id);
+        }
       }
-    }
-    return candidates.size === 0;
-  });
+      return candidates.size === 0;
+    },
+    repoId,
+  );
 
   // Assets no scanned body matched. Split off any with a NON-ASCII name and keep
   // them: such a name can be referenced via a named HTML entity (caf&eacute;.png)
