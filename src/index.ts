@@ -5,6 +5,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { decodesToToken } from "./apierr.js";
 import { BROAD_SCOPE_WARNING, resolveToken, sanitize } from "./auth.js";
+import { cleanup } from "./cleanup.js";
 import { postComment } from "./github.js";
 import { ensureRelease, uploadAsset } from "./release.js";
 import { type OutputFormat, render, type UploadResult } from "./upload.js";
@@ -62,6 +63,12 @@ export interface RunDeps {
   readGhToken?: () => string | null;
   /** `git remote get-url origin` reader, for repo inference. */
   gitRemote?: () => string | null;
+  /** Interactive cleanup I/O (live stderr in production; injected for tests). */
+  warn?: (message: string) => void;
+  /** Whether stdin is a TTY — the --cleanup delete prompt is refused if not. */
+  isTTY?: boolean;
+  /** Confirm callback for the --cleanup delete prompt. */
+  confirm?: (question: string) => Promise<boolean>;
 }
 
 /** The flags and positional files parsed from argv. */
@@ -248,12 +255,47 @@ export async function run(
     if (args.version)
       return { stdout: `${version()}\n`, stderr: "", exitCode: 0 };
     if (args.cleanup) {
-      return {
-        stdout: "",
-        stderr:
-          "gh-imgup: --cleanup is not yet implemented. Use `gh release delete` for now.\n",
-        exitCode: 1,
-      };
+      // --cleanup is a destructive, standalone mode exposed as a flag on the
+      // upload command. Reject any upload-only input rather than silently
+      // ignoring it and starting the delete flow — a stray --cleanup on an
+      // intended upload (e.g. `gh-imgup shot.png --cleanup`) must fail fast, not
+      // begin deleting. Only --repo and --tag carry over to cleanup.
+      const conflicts: string[] = [];
+      if (args.files.length > 0) conflicts.push("file arguments");
+      if (args.pr !== undefined) conflicts.push("--pr");
+      if (args.issue !== undefined) conflicts.push("--issue");
+      if (args.message !== undefined) conflicts.push("--message");
+      if (args.json) conflicts.push("--json");
+      if (args.raw) conflicts.push("--raw");
+      if (args.maxSize !== undefined) conflicts.push("--max-size");
+      if (conflicts.length > 0) {
+        throw new Error(
+          `--cleanup takes no upload inputs; remove: ${conflicts.join(", ")}.`,
+        );
+      }
+      // Interactive, live-I/O path (not the buffered upload model): cleanup
+      // writes progress and prompts straight to stderr/stdin. Its errors still
+      // unwind to the decode-aware catch below.
+      const cleanupWarn =
+        deps.warn ??
+        ((m: string) => {
+          process.stderr.write(m);
+        });
+      const resolved = resolveToken({
+        env: deps.env,
+        readGhToken: deps.readGhToken,
+      });
+      token = resolved.token;
+      if (resolved.source === "gh") cleanupWarn(BROAD_SCOPE_WARNING);
+      const repo = resolveRepo(args, deps.gitRemote ?? gitRemoteOrigin);
+      const tag = validateTag(args.tag ?? DEFAULT_TAG);
+      await cleanup(token, repo, tag, {
+        fetchImpl: deps.fetchImpl,
+        warn: cleanupWarn,
+        isTTY: deps.isTTY,
+        confirm: deps.confirm,
+      });
+      return { stdout: "", stderr: stderr.join(""), exitCode: 0 };
     }
     if (args.json && args.raw) {
       throw new Error("--json and --raw are mutually exclusive.");

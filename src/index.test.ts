@@ -124,13 +124,6 @@ test("the published bin runs through a .bin symlink (npm/npx)", () => {
   assert.equal(out.trim(), version());
 });
 
-test("--cleanup is reported as not implemented (empty stdout)", async () => {
-  const r = await run(["--cleanup"]);
-  assert.equal(r.exitCode, 1);
-  assert.equal(r.stdout, "");
-  assert.match(r.stderr, /--cleanup is not yet implemented/);
-});
-
 test("argument errors fail with empty stdout and exit 1", async () => {
   const cases: Array<[string[], RegExp]> = [
     [["a.png", "--json", "--raw"], /mutually exclusive/],
@@ -266,6 +259,112 @@ test("the token never reaches stderr on an API error", async () => {
   const r = await run([img("leak.png"), "--repo", "o/r"], baseDeps(impl));
   assert.equal(r.exitCode, 1);
   assert.doesNotMatch(r.stderr, /ghp_TOK/);
+});
+
+/** A minimal cleanup-capable GitHub API: one orphan asset, empty scan surfaces. */
+function cleanupApi() {
+  return scriptedFetch((req) => {
+    const u = new URL(req.url);
+    const p = u.pathname;
+    if (req.method === "GET" && p.includes("/releases/tags/")) {
+      return json(
+        { id: 99, tag_name: "_gh-imgup", prerelease: true, draft: false },
+        200,
+      );
+    }
+    if (req.method === "GET" && /\/releases\/\d+\/assets$/.test(p)) {
+      return json(
+        [
+          {
+            id: 7,
+            name: "orphan.png",
+            browser_download_url:
+              "https://github.com/o/r/releases/download/_gh-imgup/orphan.png",
+          },
+        ],
+        200,
+      );
+    }
+    if (req.method === "GET" && /\/releases\/assets\/\d+$/.test(p)) {
+      return json(
+        {
+          browser_download_url:
+            "https://github.com/o/r/releases/download/_gh-imgup/orphan.png",
+          name: "orphan.png",
+        },
+        200,
+      );
+    }
+    if (
+      req.method === "GET" &&
+      (p.endsWith("/issues") ||
+        p.endsWith("/comments") ||
+        p.endsWith("/releases"))
+    ) {
+      return json([], 200);
+    }
+    if (req.method === "DELETE") return new Response(null, { status: 204 });
+    throw new Error(`unexpected ${req.method} ${req.url}`);
+  });
+}
+
+test("--cleanup refuses to delete without a TTY", async () => {
+  const { impl, calls } = cleanupApi();
+  const r = await run(["--cleanup", "--repo", "o/r"], {
+    ...baseDeps(impl),
+    isTTY: false,
+    confirm: async () => true,
+    warn: () => {},
+  });
+  assert.equal(r.exitCode, 1);
+  assert.match(r.stderr, /not a TTY/);
+  assert.ok(!calls.some((c) => c.method === "DELETE"));
+});
+
+test("--cleanup deletes an unreferenced asset on confirmation", async () => {
+  const { impl, calls } = cleanupApi();
+  const warns: string[] = [];
+  const r = await run(["--cleanup", "--repo", "o/r"], {
+    ...baseDeps(impl),
+    isTTY: true,
+    confirm: async () => true,
+    warn: (m) => warns.push(m),
+  });
+  assert.equal(r.exitCode, 0);
+  assert.ok(
+    calls.some(
+      (c) => c.method === "DELETE" && c.url.endsWith("/releases/assets/7"),
+    ),
+  );
+  assert.match(warns.join(""), /Deleted 1 asset/);
+});
+
+test("--cleanup with a positional file fails fast (no deletion)", async () => {
+  // A stray --cleanup on an intended upload must not silently start deleting;
+  // it fails before any token/network work.
+  const { impl, calls } = cleanupApi();
+  const r = await run(["shot.png", "--cleanup", "--repo", "o/r"], {
+    ...baseDeps(impl),
+    isTTY: true,
+    confirm: async () => true,
+    warn: () => {},
+  });
+  assert.equal(r.exitCode, 1);
+  assert.match(r.stderr, /--cleanup takes no upload inputs.*file arguments/);
+  assert.equal(calls.length, 0); // failed fast — no release lookup, no DELETE
+});
+
+test("--cleanup with an upload-only flag fails fast", async () => {
+  const { impl, calls } = cleanupApi();
+  const r = await run(["--cleanup", "--json", "--repo", "o/r"], {
+    ...baseDeps(impl),
+    isTTY: true,
+    confirm: async () => true,
+    warn: () => {},
+  });
+  assert.equal(r.exitCode, 1);
+  assert.match(r.stderr, /--cleanup takes no upload inputs.*--json/);
+  assert.equal(calls.length, 0);
 });
 
 test("a validation error never leaks an ENCODED token to stderr", async () => {
