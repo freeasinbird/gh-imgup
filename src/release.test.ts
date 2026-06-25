@@ -96,7 +96,10 @@ const assetUrl = (name: string, owner = "o", repo = "r") =>
  */
 function cleanupFetch(
   post: (req: FakeCall) => Response,
-  opts: { verifyGet?: () => Response; deleteStatus?: number } = {},
+  opts: {
+    verifyGet?: (ourUrl: string) => Response;
+    deleteStatus?: number;
+  } = {},
 ) {
   let ourUrl = "";
   return scriptedFetch((req) => {
@@ -106,7 +109,7 @@ function cleanupFetch(
     }
     if (req.method === "GET") {
       return opts.verifyGet
-        ? opts.verifyGet()
+        ? opts.verifyGet(ourUrl)
         : json({ browser_download_url: ourUrl }, 200);
     }
     if (req.method === "DELETE") {
@@ -267,10 +270,36 @@ test("uploadAsset deletes the asset and fails on a digest mismatch", async () =>
   );
 });
 
+test("uploadAsset still deletes when GitHub renamed the asset (same URL, different name)", async () => {
+  // GitHub can sanitize the stored filename, so the re-fetched `name` may differ
+  // from the name we requested. The accepted browser_download_url already binds
+  // the asset, so cleanup must NOT be blocked by a name mismatch.
+  const file = imageFixture("renamed.png", "REALBYTES");
+  const { impl, calls } = cleanupFetch(
+    (req) => uploadOk(req, { id: 8, digest: `sha256:${"a".repeat(64)}` }),
+    {
+      verifyGet: (ourUrl) =>
+        json(
+          { browser_download_url: ourUrl, name: "sanitized-by-github.png" },
+          200,
+        ),
+    },
+  );
+  await assert.rejects(
+    () => uploadAsset(TOKEN, REPO, 42, TAG, file, { fetchImpl: impl }),
+    /Integrity check failed for renamed\.png/,
+  );
+  assert.ok(
+    calls.some(
+      (c) => c.method === "DELETE" && c.url.endsWith("/releases/assets/8"),
+    ),
+  ); // exact URL matches → delete proceeds despite the renamed `name`
+});
+
 test("uploadAsset does not delete when the asset id isn't verifiably ours", async () => {
   // The 201 binds a correct hex URL but supplies id 8; the verify GET of id 8
-  // returns a DIFFERENT asset's URL (no matching hex), so the id isn't provably
-  // ours. We must NOT delete by it (data-loss risk) — warn about an orphan.
+  // returns a DIFFERENT asset's URL, so the id isn't provably ours. We must NOT
+  // delete by it (data-loss risk) — warn about an orphan.
   const file = imageFixture("unboundid.png", "REALBYTES");
   const warnings: string[] = [];
   const { impl, calls } = cleanupFetch(
@@ -294,6 +323,35 @@ test("uploadAsset does not delete when the asset id isn't verifiably ours", asyn
     ),
   );
   assert.ok(!calls.some((c) => c.method === "DELETE")); // unverified id → never delete
+  assert.match(warnings.join("\n"), /--cleanup/);
+});
+
+test("uploadAsset does not delete when verify GET only shares the upload hex", async () => {
+  // The random hex is a useful upload binding, but not enough for a destructive
+  // delete: a different same-repo/tag asset can contain the same substring.
+  const file = imageFixture("samehex.png", "REALBYTES");
+  const warnings: string[] = [];
+  const { impl, calls } = cleanupFetch(
+    (req) => uploadOk(req, { id: 8, digest: `sha256:${"a".repeat(64)}` }),
+    {
+      verifyGet: (ourUrl) => {
+        const hex = ourUrl.match(/[0-9a-f]{8}(?=\.png$)/)?.[0] ?? "00000000";
+        return json(
+          { browser_download_url: assetUrl(`unrelated-${hex}.png`) },
+          200,
+        );
+      },
+    },
+  );
+  await assert.rejects(
+    () =>
+      uploadAsset(TOKEN, REPO, 42, TAG, file, {
+        fetchImpl: impl,
+        warn: (m) => warnings.push(m),
+      }),
+    /Integrity check failed for samehex\.png/,
+  );
+  assert.ok(!calls.some((c) => c.method === "DELETE")); // exact URL mismatch
   assert.match(warnings.join("\n"), /--cleanup/);
 });
 
