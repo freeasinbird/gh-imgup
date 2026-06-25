@@ -218,6 +218,15 @@ test("validateImageFile returns metadata for a valid image", () => {
   });
 });
 
+test("validateImageFile hashes valid images in chunks", () => {
+  const file = join(dir, "chunked.png");
+  const bytes = Buffer.alloc(96 * 1024, 7);
+  writeFileSync(file, bytes);
+  const got = validateImageFile(file, 128 * 1024);
+  assert.equal(got.size, bytes.length);
+  assert.equal(got.sha256, createHash("sha256").update(bytes).digest("hex"));
+});
+
 test("validateImageFile rejects missing, empty, oversized, and bad-type files", () => {
   assert.throws(
     () => validateImageFile(join(dir, "nope.png"), 1024),
