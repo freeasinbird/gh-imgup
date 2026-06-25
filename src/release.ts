@@ -315,19 +315,22 @@ async function bestEffortDelete(
  * OURS. The 201's browser_download_url was bound to our upload (repo/tag/hex),
  * yet `asset.id` is a SEPARATE field: a malformed body could pair our URL with
  * another asset's id, and deleting by it would remove an unrelated asset. So
- * re-fetch the asset by id from a trusted GET and delete only if THAT id hosts
- * our upload (its URL passes the same repo/tag binding and carries our unique
- * hex). Anything else — a non-200 GET, an unparseable body, or a URL that
- * isn't ours — warns about a possible orphan instead of issuing a destructive
- * delete by an id we can't confirm. Preserves invariant 6's delete-on-mismatch
- * for our own asset while closing the unbound-id data-loss path.
+ * re-fetch the asset by id from a trusted GET and delete only if THAT id still
+ * hosts the exact URL the upload response bound to this run. Anything else — a
+ * non-200 GET, an unparseable body, or a different URL — warns about a possible
+ * orphan instead of issuing a destructive delete by an id we can't confirm. We
+ * bind on the URL, not the asset name: the accepted browser_download_url already
+ * encodes GitHub's stored (possibly sanitized) filename, so comparing the
+ * re-fetched name to the name we *requested* would false-skip cleanup whenever
+ * GitHub renames the file. Preserves invariant 6's delete-on-mismatch for our
+ * own asset while closing the unbound-id data-loss path.
  */
 async function verifiedDelete(
   token: string,
   repo: Repo,
   assetId: number,
   tag: string,
-  hex: string,
+  expectedUrl: string,
   context: string,
   deps: ReleaseDeps,
 ): Promise<void> {
@@ -359,10 +362,7 @@ async function verifiedDelete(
     return;
   }
   const gotUrl = got?.browser_download_url;
-  if (
-    !isUsableAssetUrl(gotUrl, repo, tag) ||
-    !(gotUrl.split("/").pop() ?? "").includes(hex)
-  ) {
+  if (!isUsableAssetUrl(gotUrl, repo, tag) || gotUrl !== expectedUrl) {
     orphanWarn();
     return;
   }
@@ -535,7 +535,7 @@ export async function uploadAsset(
       repo,
       asset.id,
       tag,
-      hex,
+      downloadUrl,
       `mime-mismatch ${file.filename}`,
       deps,
     );
@@ -554,7 +554,7 @@ export async function uploadAsset(
       repo,
       asset.id,
       tag,
-      hex,
+      downloadUrl,
       `bad-state ${file.filename}`,
       deps,
     );
@@ -588,7 +588,7 @@ export async function uploadAsset(
         repo,
         asset.id,
         tag,
-        hex,
+        downloadUrl,
         `size-mismatch ${file.filename}`,
         deps,
       );
@@ -616,7 +616,7 @@ export async function uploadAsset(
       repo,
       asset.id,
       tag,
-      hex,
+      downloadUrl,
       `integrity-failed ${file.filename}`,
       deps,
     );
