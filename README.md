@@ -258,6 +258,19 @@ gh extension install freeasinbird/gh-imgup
 gh imgup screenshot.png --pr 42
 ```
 
+The extension is compiled from source, so on first run it prints a one-time
+build command (`npm ci --include=dev && npm run build` in the extension
+directory) — run it once. This is the only step that touches the npm registry;
+afterward, running the tool contacts GitHub only, and works offline. Later
+upgrades rebuild automatically from the already-installed toolchain.
+
+`gh extension install` uses this source-clone path only while the repo has no
+published *release* — it otherwise expects prebuilt extension binaries in the
+release (the `_gh-imgup` image-asset prerelease is ignored, since gh skips
+prereleases). So a normal versioned release must either ship gh-extension
+binaries or document a pinned/local install; until one is cut, the source build
+above is what runs.
+
 ### Agent skill (Claude Code, Cursor, Codex)
 
 ```bash

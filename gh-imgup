@@ -1,0 +1,65 @@
+#!/usr/bin/env bash
+#
+# gh CLI extension wrapper for gh-imgup.
+#
+# `gh imgup <file...> [options]` runs this script, which execs the compiled
+# Node CLI in dist/. The extension is the same codebase as the npm package and
+# the agent skill — all three run dist/index.js (one codebase, three channels).
+#
+# dist/ is a build artifact (gitignored) and `gh extension install` clones the
+# source, so it must be built once. Running the tool NEVER touches the npm
+# registry: when the build is stale it rebuilds locally (`npm run build`, no
+# network) if the toolchain is already installed, and otherwise stops with a
+# one-time setup instruction — so `gh imgup` only ever contacts GitHub, and works
+# offline once set up. All bootstrap output goes to stderr (output contract).
+set -euo pipefail
+
+# Resolve this script's real directory, following symlinks (npm link / dev).
+self="${BASH_SOURCE[0]:-$0}"
+while [ -L "$self" ]; do
+  target="$(readlink "$self")"
+  case "$target" in
+    /*) self="$target" ;;
+    *) self="$(dirname -- "$self")/$target" ;;
+  esac
+done
+ext_dir="$(cd -- "$(dirname -- "$self")" && pwd)"
+entry="$ext_dir/dist/index.js"
+
+if ! command -v node >/dev/null 2>&1; then
+  echo "gh-imgup: Node.js 22+ is required but 'node' was not found on PATH." >&2
+  exit 1
+fi
+
+setup_hint() {
+  echo "gh-imgup: the extension needs a one-time build. Run:" >&2
+  echo "  ( cd \"$ext_dir\" && npm ci --include=dev && npm run build )" >&2
+  echo "This installs the build toolchain from the npm registry once; afterward" >&2
+  echo "running the tool only contacts api.github.com / uploads.github.com." >&2
+}
+
+# Rebuild if the entry is missing or any source/config is newer than it (e.g.
+# after `gh extension upgrade`). `find -newer` prints a path only when stale.
+needs_build=0
+if [ ! -f "$entry" ]; then
+  needs_build=1
+elif [ -n "$(find "$ext_dir/src" "$ext_dir/tsconfig.json" "$ext_dir/package.json" "$ext_dir/package-lock.json" -newer "$entry" 2>/dev/null | head -n 1)" ]; then
+  needs_build=1
+fi
+
+if [ "$needs_build" -eq 1 ]; then
+  # Building needs the dev toolchain. Install it only via the explicit setup
+  # step above — never silently from the run path — so startup stays offline and
+  # GitHub-only. If deps are present and current, rebuild locally (no network).
+  if [ ! -d "$ext_dir/node_modules" ] || [ "$ext_dir/package-lock.json" -nt "$ext_dir/node_modules/.package-lock.json" ]; then
+    setup_hint
+    exit 1
+  fi
+  echo "gh-imgup: rebuilding the CLI (source changed)…" >&2
+  if ! ( cd -- "$ext_dir" && npm run build >/dev/null 2>&1 ); then
+    setup_hint
+    exit 1
+  fi
+fi
+
+exec node "$entry" "$@"
