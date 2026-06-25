@@ -106,14 +106,19 @@ export async function authedFetch(
   init: RequestInit = {},
   fetchImpl: typeof fetch = fetch,
 ): Promise<Response> {
-  const parsed = new URL(url);
+  let parsed: URL;
+  try {
+    parsed = new URL(url);
+  } catch {
+    throw new Error("Refusing to send credentials to malformed URL.");
+  }
   // HTTPS-only: the token must never go out over plaintext, even to an allowed
   // host that would redirect to HTTPS — the cleartext request leaks it first.
   if (parsed.protocol !== "https:") {
-    throw new Error(`Refusing to send credentials over non-HTTPS URL: ${url}`);
+    throw new Error("Refusing to send credentials over non-HTTPS URL.");
   }
   if (!GITHUB_API_HOSTS.has(parsed.host)) {
-    throw new Error(`Refusing to contact non-GitHub host in URL: ${url}`);
+    throw new Error("Refusing to contact non-GitHub host in URL.");
   }
   try {
     // Header construction is inside the sanitized try: a token with an invalid

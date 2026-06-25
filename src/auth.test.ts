@@ -131,6 +131,26 @@ test("authedFetch refuses non-HTTPS URLs and never calls fetch", async () => {
   assert.equal(calls.length, 0);
 });
 
+test("authedFetch preflight errors do not echo token-bearing URLs", async () => {
+  const { impl, calls } = recordingFetch(new Response("ok"));
+  for (const url of [
+    "not a url ghp%5FTOK",
+    "http://api.github.com/x?token=ghp%5FTOK",
+    "https://evil.com/x?token=ghp%5FTOK",
+  ]) {
+    await assert.rejects(
+      () => authedFetch("ghp_TOK", url, {}, impl),
+      (err: Error) => {
+        assert.doesNotMatch(err.message, /ghp/i);
+        assert.doesNotMatch(err.message, /%5F/i);
+        return true;
+      },
+      url,
+    );
+  }
+  assert.equal(calls.length, 0);
+});
+
 test("authedFetch returns the underlying response on success", async () => {
   const response = new Response("body", { status: 201 });
   const { impl } = recordingFetch(response);
