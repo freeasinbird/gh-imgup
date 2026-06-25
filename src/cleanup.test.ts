@@ -44,11 +44,16 @@ const json = (
 interface ApiOpts {
   release?: "missing";
   releaseObj?: object;
+  /** The repo's numeric id (matches the id-form pagination links); null omits it. */
+  repoId?: number | null;
   assets?: Asset[];
   assetPages?: Asset[][];
   issues?: string[];
+  /** Multi-page issues — each entry is one page; pages link forward GitHub-style. */
+  issuePages?: string[][];
   /** Raw items for the /issues page — to inject malformed shapes the typed helpers can't. */
   issuesRaw?: unknown[];
+  issuesHeaders?: Record<string, string>;
   issueComments?: string[];
   pullComments?: string[];
   commitComments?: string[];
@@ -65,6 +70,8 @@ function api(opts: ApiOpts = {}) {
     const p = u.pathname;
     if (opts.fail && req.url.includes(opts.fail))
       return json({ message: "boom" }, 500);
+    if (req.method === "GET" && p.endsWith("/repos/o/r"))
+      return json(opts.repoId === null ? {} : { id: opts.repoId ?? 123 }, 200);
     if (req.method === "GET" && p.includes("/releases/tags/")) {
       if (opts.release === "missing") return json({ message: "nf" }, 404);
       return json(
@@ -93,8 +100,26 @@ function api(opts: ApiOpts = {}) {
           : {};
       return json(items, 200, headers);
     }
-    if (req.method === "GET" && p.endsWith("/issues"))
-      return json(opts.issuesRaw ?? bodies(opts.issues), 200);
+    if (req.method === "GET" && p.endsWith("/issues")) {
+      if (opts.issuePages) {
+        const page = Number(u.searchParams.get("page") ?? "1");
+        const items = bodies(opts.issuePages[page - 1] ?? []);
+        // Mirror GitHub's real rel=next: the numeric /repositories/{id} path
+        // form, the original query preserved, plus an opaque `after` cursor.
+        const headers: Record<string, string> =
+          page < opts.issuePages.length
+            ? {
+                Link: `<https://api.github.com/repositories/123/issues?state=all&per_page=100&after=CUR${page}&page=${page + 1}>; rel="next"`,
+              }
+            : {};
+        return json(items, 200, headers);
+      }
+      return json(
+        opts.issuesRaw ?? bodies(opts.issues),
+        200,
+        opts.issuesHeaders,
+      );
+    }
     if (req.method === "GET" && p.endsWith("/issues/comments"))
       return json(bodies(opts.issueComments), 200);
     if (req.method === "GET" && p.endsWith("/pulls/comments"))
@@ -464,6 +489,114 @@ test("a scan failure aborts without deleting (fail-safe)", async () => {
   const a = api({ assets: [A], fail: "/issues/comments" });
   await assert.rejects(() => cleanup(TOKEN, REPO, TAG, baseDeps(a.impl)));
   assert.deepEqual(a.deleted, []); // never deletes when the scan is incomplete
+});
+
+test("an off-target scan pagination link aborts without deleting", async () => {
+  // A Link URL on api.github.com is not enough: if it jumps to another repo, the
+  // target repo scan is incomplete and deletion must not start.
+  const A = asset(1, "orphan.png");
+  const a = api({
+    assets: [A],
+    issuesHeaders: {
+      Link: '<https://api.github.com/repos/other/repo/issues?state=all&per_page=100&page=2>; rel="next"',
+    },
+  });
+  await assert.rejects(
+    () => cleanup(TOKEN, REPO, TAG, baseDeps(a.impl)),
+    /unsafe pagination URL/,
+  );
+  assert.deepEqual(a.deleted, []);
+});
+
+test("a non-advancing scan pagination link aborts without deleting", async () => {
+  const A = asset(1, "orphan.png");
+  const a = api({
+    assets: [A],
+    issuesHeaders: {
+      Link: '<https://api.github.com/repos/o/r/issues?state=all&per_page=100&page=1>; rel="next"',
+    },
+  });
+  await assert.rejects(
+    () => cleanup(TOKEN, REPO, TAG, baseDeps(a.impl)),
+    /unsafe pagination URL/,
+  );
+  assert.deepEqual(a.deleted, []);
+});
+
+test("an id-form pagination link for a different repo id aborts", async () => {
+  // /repositories/{id} is accepted only for THIS repo's id (123 here); a Link to
+  // another repo's id would scan the wrong surface, so it must abort, not delete.
+  const A = asset(1, "orphan.png");
+  const a = api({
+    assets: [A],
+    issuesHeaders: {
+      Link: '<https://api.github.com/repositories/999/issues?state=all&per_page=100&page=2>; rel="next"',
+    },
+  });
+  await assert.rejects(
+    () => cleanup(TOKEN, REPO, TAG, baseDeps(a.impl)),
+    /unsafe pagination URL/,
+  );
+  assert.deepEqual(a.deleted, []);
+});
+
+test("a page-skipping pagination link aborts without deleting", async () => {
+  // Forward movement isn't enough: a jump from page 1 to page 999 skips pages
+  // 2-998, so a reference there would be missed. Pages must be contiguous.
+  const A = asset(1, "orphan.png");
+  const a = api({
+    assets: [A],
+    issuesHeaders: {
+      Link: '<https://api.github.com/repos/o/r/issues?state=all&per_page=100&page=999>; rel="next"',
+    },
+  });
+  await assert.rejects(
+    () => cleanup(TOKEN, REPO, TAG, baseDeps(a.impl)),
+    /unsafe pagination URL/,
+  );
+  assert.deepEqual(a.deleted, []);
+});
+
+test("aborts without deleting when the repository id can't be resolved", async () => {
+  // The id-form pagination re-binding depends on knowing this repo's id; if the
+  // lookup omits it, fail closed rather than scan unverifiable pages.
+  const A = asset(1, "orphan.png");
+  const a = api({ assets: [A], repoId: null });
+  await assert.rejects(
+    () => cleanup(TOKEN, REPO, TAG, baseDeps(a.impl)),
+    /repository id/,
+  );
+  assert.deepEqual(a.deleted, []);
+});
+
+test("follows GitHub's real rel=next (numeric repo path + cursor) across pages", async () => {
+  // GitHub returns pagination links in the /repositories/{id} form with an
+  // `after` cursor; the scan must follow them, not reject them. Here the only
+  // reference to the asset lives on page 2, so completing pagination keeps it.
+  const A = asset(1, "orphan.png");
+  const a = api({
+    assets: [A],
+    issuePages: [["nothing here"], [`see ![x](${A.url})`]],
+  });
+  await cleanup(TOKEN, REPO, TAG, baseDeps(a.impl));
+  assert.deepEqual(a.deleted, []); // page-2 reference seen -> kept
+  // Proves page 2 was actually fetched via the rewritten id-form Link.
+  assert.ok(
+    a.calls.some((c) => c.url.includes("/repositories/123/issues")),
+    "expected the scan to follow the numeric-id rel=next link",
+  );
+});
+
+test("deletes after completing a multi-page scan that finds no reference", async () => {
+  // The asset is referenced on no page; the scan must traverse every page and
+  // then reach the delete phase (the fix must not false-abort on real links).
+  const A = asset(1, "orphan.png");
+  const a = api({
+    assets: [A],
+    issuePages: [["unrelated"], ["still unrelated"]],
+  });
+  await cleanup(TOKEN, REPO, TAG, baseDeps(a.impl));
+  assert.deepEqual(a.deleted, [1]);
 });
 
 test("aborts on a malformed scan item (non-string body)", async () => {

@@ -266,6 +266,8 @@ function cleanupApi() {
   return scriptedFetch((req) => {
     const u = new URL(req.url);
     const p = u.pathname;
+    if (req.method === "GET" && p.endsWith("/repos/o/r"))
+      return json({ id: 99 }, 200);
     if (req.method === "GET" && p.includes("/releases/tags/")) {
       return json(
         { id: 99, tag_name: "_gh-imgup", prerelease: true, draft: false },
