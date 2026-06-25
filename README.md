@@ -2,12 +2,13 @@
 
 A CLI tool that uploads images to GitHub issues and pull requests using the documented Release Assets API. Designed for agents and CI workflows that need to attach screenshots — particularly before/after UI images — to PRs for human reviewers.
 
-> **Status: pre-release / in development.** The toolchain, tests, and CI are
-> in place, but the upload pipeline is not yet implemented — the CLI currently
-> handles only `--help`/`--version`. The commands and behavior below describe
-> the target design (see [`docs/design.md`](docs/design.md)); they do not
-> all work yet, and the package is not published. Follow development in
-> [AGENTS.md](AGENTS.md) and the [devlog](devlog/).
+> **Status: pre-release.** The CLI is implemented and tested — image upload with
+> SHA-256 integrity verification, optional PR/issue comments, and interactive
+> `--cleanup`. It is **not yet published to npm** and no versioned `gh`-extension
+> release has been cut, so for now it runs from a source build (see
+> [Distribution](#distribution)). The examples below describe current behavior.
+> Development notes are in [AGENTS.md](AGENTS.md) and the [devlog](devlog/); the
+> design spec is in [`docs/design.md`](docs/design.md).
 
 ---
 
@@ -17,13 +18,15 @@ GitHub has no public API for image attachments. The drag-and-drop upload in the 
 
 This creates a real gap for automated workflows. When an agent or CI job implements a UI change, the most useful artifact for code review is a screenshot — yet there's no supported way to get one into the PR programmatically. The result is PRs that describe visual changes in text, leaving reviewers to check out the branch and see for themselves.
 
-Three existing tools attempt to solve this. Each has a fundamental flaw:
+There are a few ways to bridge this gap: reuse a logged-in browser session,
+automate a real browser, or upload images through the documented Release Assets
+API. `gh-imgup` takes the Release Assets approach and uploads to the **same
+repository** the PR or issue lives in, so the repo's existing access controls
+apply to the images; it authenticates with a scoped token, contacts only GitHub,
+and has no runtime dependencies.
 
-- **`gh-image`** decrypts browser cookies from disk to replay session tokens — the same technique used by info-stealer malware. Grants full, unscoped account access.
-- **`github-upload-image-to-pr`** is an AI agent skill that drives a real browser via Chrome DevTools or Playwright MCP. Gives the agent full control of every tab and every logged-in session.
-- **`gitshot`** uploads images as GitHub Release Assets (a sound approach) but defaults to a separate **public** repository and silently falls back to catbox.moe, an anonymous third-party file host.
-
-`gh-imgup` takes the Release Assets approach and fixes its problems: uploads to the **same repo** (inheriting access controls), uses scoped `GITHUB_TOKEN` credentials, never contacts third-party services, and has zero runtime dependencies.
+These choices came out of a security review of the problem and of existing tools,
+written up in [`docs/design.md`](docs/design.md).
 
 ---
 
@@ -31,9 +34,9 @@ Three existing tools attempt to solve this. Each has a fundamental flaw:
 
 Screenshots in PRs of UI changes, for human reviewers.
 
-A CSS diff doesn't tell a reviewer whether a layout looks correct. A before/after screenshot pair answers that question in seconds. Every frontend team with good PR hygiene wants this in their reviews — most skip it because the manual workflow is high-friction.
+A CSS diff doesn't tell a reviewer whether a layout looks correct; a before/after screenshot pair answers that in seconds. Capturing and attaching those screenshots by hand is enough friction that it often gets skipped.
 
-`gh-imgup` eliminates that friction, especially when paired with an agent that can capture screenshots.
+`gh-imgup` automates the upload-and-attach step, so the only manual part left is capturing the screenshots — which an agent with browser access can also do.
 
 ### The Agent Workflow
 
@@ -47,7 +50,7 @@ An agent with headless browser access (Playwright MCP, Chrome DevTools MCP, or s
 
 The reviewer opens the PR and sees the images inline. No branch checkout, no local dev server, no context switching.
 
-This works today with Claude Code, Codex, or any agent that can run Playwright in headless mode. The screenshot capture is the agent's responsibility — `gh-imgup` handles only the upload and PR attachment. Clean separation: capture is not this tool's job.
+The workflow is agent-agnostic: any agent that can drive a headless browser (for example via Playwright) to capture the screenshots can then call `gh-imgup` to upload and attach them. Capture is the agent's responsibility; this tool handles only upload and attachment.
 
 ### Other Use Cases
 
@@ -77,17 +80,17 @@ The tool uses `GITHUB_TOKEN`, the standard mechanism for GitHub API access. In G
 
 Required scopes: `contents:write` for uploading, plus `issues:write` if commenting on a PR or issue.
 
-The tool never reads browser cookies, never opens a browser, and never stores or transmits credentials beyond the single API call. All error messages are sanitized to strip token values before printing.
+The tool never reads browser cookies and never opens a browser. The token is read from the environment (or the `gh` CLI), held in memory, sent only to `api.github.com` / `uploads.github.com` over HTTPS for the requests it makes, and never written to disk. All error messages are sanitized to strip token values before printing.
 
 ### Upload Flow
 
 1. **Ensure the `_gh-imgup` prerelease exists** on the target repo (create if missing, with a race-condition-safe create-or-get pattern)
-2. **Validate the file**: check existence, size (via `stat()` before reading), and MIME type against a strict allowlist (PNG, JPG, GIF, WebP)
+2. **Validate the file**: check existence, size (via `stat()` before reading), and the extension against a strict allowlist (`.png`, `.jpg`, `.jpeg`, `.gif`, `.webp`), each mapped to a fixed MIME type
 3. **Upload** as a release asset via `POST https://uploads.github.com/...` with a collision-safe filename (`{stem}-{8-char-hex}.{ext}`)
 4. **Verify integrity**: compare local SHA-256 against the API response digest; delete and fail on mismatch
 5. **Comment on the PR/issue** (optional): post the markdown image reference via the Issues API
 
-All GitHub interaction uses `fetch()`. The tool makes exactly two subprocess calls in total — `gh auth token` (fallback auth) and `git remote get-url origin` (repo inference) — both using `execFileSync` with array arguments (no shell, no string interpolation).
+All GitHub interaction uses `fetch()`. The compiled CLI makes exactly two subprocess calls ever — `gh auth token` (fallback auth) and `git remote get-url origin` (repo inference) — both via `execFileSync` with array arguments (no shell, no string interpolation, no user input in the array). (The `gh`-extension wrapper is a thin bootstrap shell script that builds/locates `dist/` and forwards arguments to `node`.)
 
 ---
 
@@ -110,9 +113,11 @@ Options:
   -v, --version         Show version
 
 Environment:
-  GITHUB_TOKEN          Required. GitHub token with contents:write scope.
-                        In GitHub Actions: automatic (add permissions block).
-                        Locally: export GITHUB_TOKEN=$(gh auth token)
+  GITHUB_TOKEN          GitHub token with contents:write scope (add issues:write
+                        for --pr/--issue). Optional: if unset, falls back to the
+                        gh CLI token (gh auth token), warning on stderr that its
+                        scope is broader. In GitHub Actions it is provided
+                        automatically (add a permissions block).
 ```
 
 ### Output
@@ -124,9 +129,9 @@ Stdout receives only machine-parseable output. Stderr receives progress, warning
 $ gh-imgup screenshot.png --pr 42
 ![screenshot](https://github.com/owner/repo/releases/download/_gh-imgup/screenshot-a1b2c3d4.png)
 
-# JSON — for piping into other tools
+# JSON — always an array (one object per file), for piping into other tools
 $ gh-imgup screenshot.png --json
-{"url":"https://...","markdown":"![screenshot](...)","filename":"screenshot.png","digest":"sha256:abc123..."}
+[{"url":"https://...","markdown":"![screenshot](...)","filename":"screenshot.png","repo":"owner/repo","digest":"sha256:abc123..."}]
 
 # Multiple images with caption
 $ gh-imgup before.png after.png --pr 42 -m "Button component — visual diff"
@@ -164,6 +169,13 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 ```
 
+This example uses the npm package. Until it is published, replace the `npx
+gh-imgup …` step with a build from source — check out this repo, run
+`npm ci --include=dev && npm run build`, then `node dist/index.js …`. Run from
+the gh-imgup checkout, also pass `--repo ${{ github.repository }}` (with absolute
+paths to the screenshots), since the tool would otherwise infer the repo from the
+gh-imgup checkout rather than the workflow's.
+
 ---
 
 ## Security Model
@@ -199,20 +211,6 @@ In agentic workflows, the agent decides what to screenshot. The SKILL.md include
 
 This is the highest-impact security control in the system. The upload mechanism is secure — the risk is in what gets uploaded.
 
-### Comparison with Existing Tools
-
-| Property | `gh-imgup` | `gh-image` | tonkotsuboy skill | `gitshot` |
-|---|---|---|---|---|
-| Auth | `GITHUB_TOKEN` / fine-grained PAT | Stolen browser cookie | Browser automation | `gh` CLI token |
-| Min scope | `contents:write` on one repo | Full GitHub account | Full browser (all sites) | `repo` scope |
-| API | Documented REST | Undocumented internal | Undocumented (via browser) | Documented REST |
-| Shell injection | Impossible (no shell exec for GitHub ops) | N/A (Go) | N/A (prompt) | Unquoted `execSync` |
-| 3rd party data | None | None | None | catbox.moe fallback |
-| Runtime deps | Zero | `kooky` + transitive | None (prompt file) | Zero |
-| Private repo | Private (same-repo assets) | Private (`user-attachments`) | Private (`user-attachments`) | **Public** (separate repo) |
-| Upload integrity | SHA-256 verified | None | None | None |
-| Token sanitization | All error paths | None | N/A | None |
-
 ---
 
 ## Known Tradeoffs
@@ -243,13 +241,15 @@ GitHub's web UI produces `user-attachments/assets/{uuid}` URLs. This tool produc
 
 ## Distribution
 
-### npm (primary)
+### npm (planned — not yet published)
 
-```bash
-npx gh-imgup screenshot.png --pr 42      # zero-install
-npm install -g gh-imgup                   # global install
-npx gh-imgup@1.0.0 screenshot.png        # pinned version (CI)
-```
+The package is not on the npm registry yet. Once published, it is intended to run
+via `npx gh-imgup …` (zero-install) or a global `npm install -g gh-imgup`, with a
+pinned version for CI. Until then, use the `gh` extension below, or run the built
+CLI from a source checkout (`npm ci --include=dev && npm run build`, then
+`node dist/index.js …`). When you invoke it from the gh-imgup checkout, pass
+`--repo owner/repo` for your target repo — otherwise it infers the repo from that
+checkout's git remote, not your project's.
 
 ### `gh` CLI extension
 
@@ -273,11 +273,18 @@ above is what runs.
 
 ### Agent skill (Claude Code, Cursor, Codex)
 
+The skill definition lives at [`skills/gh-imgup/SKILL.md`](skills/gh-imgup/SKILL.md).
+Install it with the [`skills` CLI](https://github.com/vercel-labs/skills):
+
 ```bash
-npx skills add freeasinbird/gh-imgup
+npx skills add freeasinbird/gh-imgup   # install
+npx skills update                       # update installed skills to the latest
 ```
 
-Ships the `skills/gh-imgup/SKILL.md` alongside the CLI. Agents discover the tool and the pre-upload safety instructions together.
+`skills add` reads the repository's default branch, so it works once the skill is
+merged there. You can also copy `SKILL.md` into your agent's skills directory by
+hand. Either way, the agent picks up the tool and its mandatory pre-upload
+image-review step together.
 
 ### Repo Layout
 
@@ -286,6 +293,7 @@ gh-imgup/
 ├── src/
 │   ├── index.ts          # CLI arg parsing, orchestration
 │   ├── auth.ts           # Token resolution, scope warnings, error sanitization
+│   ├── apierr.ts         # API error formatting + token-decode redaction
 │   ├── release.ts        # Create-or-get release, upload asset, verify digest
 │   ├── github.ts         # Comment on PR/issue
 │   ├── validate.ts       # Repo, tag, number, file, MIME, remote URL parsing
@@ -303,7 +311,7 @@ gh-imgup/
 └── CHANGELOG.md
 ```
 
-~400 lines of TypeScript. Zero runtime dependencies. The entire audit surface is 7 source files using Node.js built-ins.
+~2,400 lines of TypeScript across 8 source files (plus a comparable amount of tests). Zero runtime dependencies — the audit surface is those files plus Node.js built-ins.
 
 ---
 
@@ -322,7 +330,7 @@ Key decisions and their rationale:
 - **SVG excluded from MIME allowlist** — active content format, screenshots are raster; can be added behind `--allow-svg` if needed
 - **Tag prefix validation** (`_` required) — prevents `--tag v2.0.0` from polluting real releases
 - **SHA-256 integrity check** — corrupted uploads are detected and cleaned up, not silently accepted
-- **`gh-imgup` not `gh-img`** — avoids confusion with `gh-image` (drogers0), which is one character away and has the opposite security model
+- **`gh-imgup` not `gh-img`** — avoids confusion with the similarly named `gh-image`
 
 ---
 
@@ -335,3 +343,7 @@ Development conventions — branches, pull requests, commits, build commands, an
 This work is licensed under [GPL-3.0-or-later](./LICENSE).
 
 See [LICENSING-PHILOSOPHY.md](./LICENSING-PHILOSOPHY.md) for why we chose this license.
+
+---
+
+A [Free as in Bird](https://freeasinbird.com) project.
