@@ -219,6 +219,13 @@ enforced. Violating one is a security regression, not a style nit.
 - **Three distribution channels, one codebase.** npm package, `gh`
   extension wrapper (root `gh-imgup` shell script), and `skills/gh-imgup/SKILL.md`
   all point at the same compiled `dist/`. Keep them in sync.
+- **`dist/` is gitignored, so packaging builds it at pack time.** The `prepack`
+  script (`npm run build`) is load-bearing: the npm `bin` points at
+  `dist/index.js`, and without the hook `npm pack`/`npm publish` from a clean
+  checkout would ship a tarball with no `dist/` (only LICENSE/README/manifest) —
+  a broken install. Don't remove `prepack`. The `files` array also excludes
+  `dist/**/*.test.js` (the compiled tests live in `dist/` for `npm test` but
+  must not ship); verify with `npm pack --dry-run --json`.
 - **The SKILL.md pre-upload image review is a security control**, not
   documentation filler — it's the highest-impact mitigation in the system
   (the upload is secure; the risk is what gets uploaded). Don't weaken it.
