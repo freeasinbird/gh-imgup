@@ -225,13 +225,23 @@ enforced. Violating one is a security regression, not a style nit.
 - **Three distribution channels, one codebase.** npm package, `gh`
   extension wrapper (root `gh-imgup` shell script), and `skills/gh-imgup/SKILL.md`
   all point at the same compiled `dist/`. Keep them in sync.
-- **The `gh` extension stays source-install unless binary-named release assets
-  are attached.** Normal versioned GitHub Releases are compatible with the root
-  wrapper; `gh` switches to binary-extension mode only when the latest release
-  has an attached asset whose name ends in a recognized `<os>-<arch>` suffix
-  (for example `darwin-amd64` or `windows-amd64.exe`). GitHub's automatic source
-  archives do not count. Do not attach `gh-imgup-<os>-<arch>` assets unless the
-  project deliberately switches to a precompiled binary extension.
+- **Never attach a release asset whose name ends in a platform `<os>-<arch>`
+  suffix** (`*-darwin-amd64`, `*-linux-amd64`, `*-windows-amd64.exe`, …) — and
+  that's _any_ asset, not just a `gh-imgup-<os>-<arch>` binary. The `gh`
+  extension is **source-install only** (gh clones the repo and runs the root
+  `gh-imgup` script). `gh extension install` flips to binary-download mode the
+  moment the latest release carries _any_ asset whose name ends in a known
+  `<os>-<arch>` suffix — that's the `isBinExtension` check in `cli/cli`
+  (`pkg/cmd/extension/manager.go`): it `strings.HasSuffix`-matches every asset
+  name against `possibleDists()` with **no `gh-imgup-` prefix requirement**, and
+  doesn't care whether a release exists. So a stray helper artifact (a checksum
+  file, an SBOM, …) named `…-linux-amd64` would trip it just as a real binary
+  would. A normal versioned `vX.Y.Z` release with notes is fine and does NOT
+  break the extension (GitHub's auto source tarballs aren't in the `assets`
+  array); just keep every attached asset's name clear of those suffixes. We ship
+  no precompiled binaries (a per-platform bundled Node runtime would undercut the
+  zero-runtime-dep model) — see issue #14. Going binary later is a deliberate,
+  separately-reviewed switch.
 - **`dist/` is gitignored, so packaging builds it at pack time.** The `prepack`
   script (`npm run build`) is load-bearing: the npm `bin` points at
   `dist/index.js`, and without the hook `npm pack`/`npm publish` from a clean

@@ -299,11 +299,17 @@ afterward, running the tool contacts GitHub only, and works offline. Later
 upgrades rebuild automatically from the already-installed toolchain.
 
 Normal versioned GitHub Releases are compatible with this source-install
-extension path. The `gh` CLI switches to binary-extension mode only when the
-latest release contains an attached asset with a recognized platform suffix such
-as `darwin-amd64` or `windows-amd64.exe`; GitHub's automatic source archives do
-not count. Keep releases source-installable by not attaching `gh-imgup-<os>-<arch>`
-assets unless the project deliberately adopts a precompiled binary extension.
+extension path. `gh extension install` keeps using the source-clone/script path
+as long as the latest *release* carries no prebuilt extension binaries; it
+switches to downloading a binary only when a release asset's name ends in a
+platform `<os>-<arch>` suffix (e.g. `…-linux-amd64`, `…-windows-amd64.exe`) —
+and that's *any* attached asset, not just a `gh-imgup-<os>-<arch>` binary, since
+`gh` suffix-matches every asset name. GitHub's automatic source archives don't
+count. So a normal versioned release with just notes keeps the source build
+above and does **not** need to ship binaries; just keep every attached asset's
+name clear of those suffixes unless the project deliberately adopts a precompiled
+binary extension. (The `_gh-imgup` image-asset prerelease is ignored regardless —
+gh skips prereleases.)
 
 ### Agent skill (Claude Code, Cursor, Codex)
 

@@ -608,8 +608,10 @@ gh imgup screenshot.png
 
 The repo includes a `gh-imgup` shell wrapper at the root (required by
 `gh extension install`). `gh extension install` takes this source-clone path
-unless the latest release contains an attached binary asset with a recognized
-platform suffix such as `darwin-amd64` or `windows-amd64.exe`. Normal source-only
+unless the latest release contains an attached asset whose name ends in a
+recognized platform suffix such as `darwin-amd64` or `windows-amd64.exe` — any
+asset, not only a binary (`gh` suffix-matches every asset name, so a stray
+`…-linux-amd64` SBOM or checksum file would trip it too). Normal source-only
 releases therefore keep using the wrapper. Because `dist/` is a gitignored build
 artifact, the wrapper resolves its own directory, builds `dist/` once if the
 build is stale (locally, `npm run build` — no registry access), and then execs
