@@ -17,6 +17,25 @@ A CLI tool that uploads images to GitHub issues and pull requests using the docu
 
 ---
 
+## Quick Start
+
+```bash
+# Upload an image and get Markdown to drop into a PR/issue body
+npx @freeasinbird/gh-imgup screenshot.png --repo owner/repo
+# → ![screenshot](https://github.com/owner/repo/releases/download/_gh-imgup/screenshot-a1b2c3d4.png)
+
+# Or post it straight to a PR (or issue) as a comment
+npx @freeasinbird/gh-imgup screenshot.png --repo owner/repo --pr 42 -m "Login screen"
+```
+
+Needs a `GITHUB_TOKEN` with `contents:write` (add `issues:write` for `--pr`/`--issue`), or a logged-in `gh` CLI. Run it inside the target repo and `--repo` is inferred from the git remote.
+
+**Using an agent (Claude Code, Cursor, Codex)?** Also add the [skill](#agent-skill-claude-code-cursor-codex): `npx skills add freeasinbird/gh-imgup` gives the agent the usage guidance and the mandatory pre-upload image review. It does **not** install the CLI — the agent still runs `gh-imgup` from one of the options in [Distribution](#distribution).
+
+> The `npx` command is the intended published usage. **It is not on npm yet** — until then, run it via the [`gh` extension](#gh-cli-extension) or a [source build](#distribution).
+
+---
+
 ## Why This Exists
 
 GitHub has no public API for image attachments. The drag-and-drop upload in the web UI uses an internal endpoint that requires browser session cookies and has been explicitly denied as a public API for over five years ([cli/cli#1895](https://github.com/cli/cli/issues/1895)).
@@ -81,40 +100,7 @@ job adding visual evidence after a PR is open.
 
 ---
 
-## How It Works
-
-### Upload Mechanism
-
-Images are uploaded as Release Assets on the same repository where the PR or issue lives, under a prerelease tagged `_gh-imgup`. The GitHub REST API returns a `browser_download_url` that renders in any GitHub markdown context — issue bodies, PR descriptions, comments.
-
-```
-https://github.com/{owner}/{repo}/releases/download/_gh-imgup/{filename}
-```
-
-On private repos, this URL is only accessible to users with repo access. The access model is inherited automatically — no separate hosting configuration needed.
-
-### Authentication
-
-The tool uses `GITHUB_TOKEN`, the standard mechanism for GitHub API access. In GitHub Actions, this is provided automatically. Locally, it can be a fine-grained Personal Access Token scoped to a single repository, or the token stored by the `gh` CLI.
-
-Required scopes: `contents:write` for uploading, plus `issues:write` if commenting on a PR or issue.
-
-The tool never reads browser cookies and never opens a browser. The token is read from the environment (or the `gh` CLI), held in memory, sent only to `api.github.com` / `uploads.github.com` over HTTPS for the requests it makes, and never written to disk. All error messages are sanitized to strip token values before printing.
-
-### Upload Flow
-
-1. **Ensure the `_gh-imgup` prerelease exists** on the target repo (create if missing, with a race-condition-safe create-or-get pattern)
-2. **Validate the file**: check existence, size (via `stat()` before reading), and the extension against a strict allowlist (`.png`, `.jpg`, `.jpeg`, `.gif`, `.webp`), each mapped to a fixed MIME type
-3. **Upload** as a release asset via `POST https://uploads.github.com/...` with a collision-safe filename (`{stem}-{8-char-hex}.{ext}`)
-4. **Verify integrity**: compare local SHA-256 against the API response digest; delete and fail on mismatch
-5. **Return Markdown** on stdout for the caller to embed; optionally, with
-   `--pr` / `--issue`, post the Markdown as a comment via the Issues API
-
-All GitHub interaction uses `fetch()`. The compiled CLI makes exactly two subprocess calls ever — `gh auth token` (fallback auth) and `git remote get-url origin` (repo inference) — both via `execFileSync` with array arguments (no shell, no string interpolation, no user input in the array). (The `gh`-extension wrapper is a thin bootstrap shell script that builds/locates `dist/` and forwards arguments to `node`.)
-
----
-
-## CLI Reference
+## Usage
 
 ```
 gh-imgup <file...> [options]
@@ -214,6 +200,39 @@ repo, run `npm ci --include=dev && npm run build`, then `node dist/index.js …`
 Run from the gh-imgup checkout, also pass `--repo ${{ github.repository }}`
 (with absolute paths to the screenshots), since the tool would otherwise infer
 the repo from the gh-imgup checkout rather than the workflow's.
+
+---
+
+## How It Works
+
+### Upload Mechanism
+
+Images are uploaded as Release Assets on the same repository where the PR or issue lives, under a prerelease tagged `_gh-imgup`. The GitHub REST API returns a `browser_download_url` that renders in any GitHub markdown context — issue bodies, PR descriptions, comments.
+
+```
+https://github.com/{owner}/{repo}/releases/download/_gh-imgup/{filename}
+```
+
+On private repos, this URL is only accessible to users with repo access. The access model is inherited automatically — no separate hosting configuration needed.
+
+### Authentication
+
+The tool uses `GITHUB_TOKEN`, the standard mechanism for GitHub API access. In GitHub Actions, this is provided automatically. Locally, it can be a fine-grained Personal Access Token scoped to a single repository, or the token stored by the `gh` CLI.
+
+Required scopes: `contents:write` for uploading, plus `issues:write` if commenting on a PR or issue.
+
+The tool never reads browser cookies and never opens a browser. The token is read from the environment (or the `gh` CLI), held in memory, sent only to `api.github.com` / `uploads.github.com` over HTTPS for the requests it makes, and never written to disk. All error messages are sanitized to strip token values before printing.
+
+### Upload Flow
+
+1. **Ensure the `_gh-imgup` prerelease exists** on the target repo (create if missing, with a race-condition-safe create-or-get pattern)
+2. **Validate the file**: check existence, size (via `stat()` before reading), and the extension against a strict allowlist (`.png`, `.jpg`, `.jpeg`, `.gif`, `.webp`), each mapped to a fixed MIME type
+3. **Upload** as a release asset via `POST https://uploads.github.com/...` with a collision-safe filename (`{stem}-{8-char-hex}.{ext}`)
+4. **Verify integrity**: compare local SHA-256 against the API response digest; delete and fail on mismatch
+5. **Return Markdown** on stdout for the caller to embed; optionally, with
+   `--pr` / `--issue`, post the Markdown as a comment via the Issues API
+
+All GitHub interaction uses `fetch()`. The compiled CLI makes exactly two subprocess calls ever — `gh auth token` (fallback auth) and `git remote get-url origin` (repo inference) — both via `execFileSync` with array arguments (no shell, no string interpolation, no user input in the array). (The `gh`-extension wrapper is a thin bootstrap shell script that builds/locates `dist/` and forwards arguments to `node`.)
 
 ---
 
@@ -331,33 +350,6 @@ merged there. You can also copy `SKILL.md` into your agent's skills directory by
 hand. Either way, the agent picks up the tool and its mandatory pre-upload
 image-review step together.
 
-### Repo Layout
-
-```
-gh-imgup/
-├── src/
-│   ├── index.ts          # CLI arg parsing, orchestration
-│   ├── auth.ts           # Token resolution, scope warnings, error sanitization
-│   ├── apierr.ts         # API error formatting + token-decode redaction
-│   ├── release.ts        # Create-or-get release, upload asset, verify digest
-│   ├── github.ts         # Comment on PR/issue
-│   ├── validate.ts       # Repo, tag, number, file, MIME, remote URL parsing
-│   ├── cleanup.ts        # Scan issues/PRs for references, interactive deletion
-│   └── upload.ts         # Types, MIME allowlist, output formatters
-├── dist/                 # Compiled JS
-├── skills/gh-imgup/
-│   └── SKILL.md          # Agent skill definition
-├── gh-imgup              # gh extension wrapper (shell script)
-├── package.json
-├── tsconfig.json
-├── LICENSE
-├── README.md
-├── SECURITY.md
-└── CHANGELOG.md
-```
-
-~2,400 lines of TypeScript across 8 source files (plus a comparable amount of tests). Zero runtime dependencies — the audit surface is those files plus Node.js built-ins.
-
 ---
 
 ## Design Process
@@ -376,6 +368,36 @@ Key decisions and their rationale:
 - **Tag prefix validation** (`_` required) — prevents `--tag v2.0.0` from polluting real releases
 - **SHA-256 integrity check** — corrupted uploads are detected and cleaned up, not silently accepted
 - **`gh-imgup` not `gh-img`** — avoids confusion with the similarly named `gh-image`
+
+---
+
+## Repo Layout
+
+```
+gh-imgup/
+├── src/
+│   ├── index.ts          # CLI arg parsing, orchestration
+│   ├── auth.ts           # Token resolution, scope warnings, error sanitization
+│   ├── apierr.ts         # API error formatting + token-decode redaction
+│   ├── release.ts        # Create-or-get release, upload asset, verify digest
+│   ├── github.ts         # Comment on PR/issue
+│   ├── validate.ts       # Repo, tag, number, file, MIME, remote URL parsing
+│   ├── cleanup.ts        # Scan issues/PRs for references, interactive deletion
+│   ├── markdown.ts       # Rendered-inline Markdown decode + alt-text escaping
+│   └── upload.ts         # Types, MIME allowlist, output formatters
+├── dist/                 # Compiled JS
+├── skills/gh-imgup/
+│   └── SKILL.md          # Agent skill definition
+├── gh-imgup              # gh extension wrapper (shell script)
+├── package.json
+├── tsconfig.json
+├── LICENSE
+├── README.md
+├── SECURITY.md
+└── CHANGELOG.md
+```
+
+Zero runtime dependencies — the entire audit surface is the `src/` TypeScript plus Node.js built-ins.
 
 ---
 
