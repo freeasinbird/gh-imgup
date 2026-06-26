@@ -231,6 +231,19 @@ test("--pr posts a comment with the caption and image markdown", async () => {
   assert.match(body, /!\[a\]\(.*a-[0-9a-f]{8}\.png\)/);
   assert.match(body, /!\[b\]\(.*b-[0-9a-f]{8}\.png\)/);
   assert.match(r.stderr, /✓ Commented on #42/);
+  assert.doesNotMatch(r.stderr, /Ignoring --message/); // a target was given
+});
+
+test("--message without --pr/--issue warns it is ignored but still uploads", async () => {
+  const { impl, calls } = ghApi();
+  const r = await run(
+    [img("m.png"), "--repo", "o/r", "-m", "unused caption"],
+    baseDeps(impl),
+  );
+  assert.equal(r.exitCode, 0); // upload still succeeds
+  assert.match(r.stdout, /!\[m\]\(.*m-[0-9a-f]{8}\.png\)/);
+  assert.match(r.stderr, /Ignoring --message/);
+  assert.ok(!calls.some((c) => c.url.endsWith("/comments"))); // no comment posted
 });
 
 test("fail-fast: a later upload failure aborts with empty stdout, exit 1", async () => {
