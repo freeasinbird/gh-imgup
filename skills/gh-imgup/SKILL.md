@@ -13,8 +13,9 @@ description: >-
 
 Attach images to GitHub issues and PRs from the terminal. The image is uploaded
 as an asset on a dedicated prerelease (`_gh-imgup`) on the **same repository**,
-then optionally embedded in an issue/PR comment. The returned URL renders inline
-in GitHub Markdown, exactly like a drag-and-drop upload, but is fully scriptable.
+then returned as Markdown/raw/JSON for the caller to embed. The returned URL
+renders inline in GitHub Markdown, exactly like a drag-and-drop upload, but is
+fully scriptable.
 
 Use this when you've made a visual change (UI, layout, rendered output, a
 diagram) and a screenshot would tell a reviewer more than prose — especially
@@ -49,19 +50,25 @@ gh-imgup <file...> [options]
 
 The tool resolves the target repo from the `--repo` flag or the git `origin`
 remote, resolves a token from `GITHUB_TOKEN` (or the `gh` CLI), uploads each
-file, verifies its SHA-256, and prints a result. With `--pr`/`--issue` it also
-posts a comment embedding the image(s).
+file, verifies its SHA-256, and prints a result.
+
+When you are creating or editing a PR/issue body, prefer running without
+`--pr`/`--issue` and incorporating the Markdown printed to stdout into that
+body. Use `--pr`/`--issue` only when the user asks for a follow-up comment, the
+thread already exists and body editing is out of scope, or a CI job is adding
+evidence after the PR/issue has been opened.
 
 Common invocations:
 
 ```bash
-# Upload and comment on a PR (most common for review screenshots)
-gh-imgup before.png after.png --pr 42 -m "Before / after: nav redesign"
+# Preferred agent flow: upload and use stdout in the PR/issue body
+gh-imgup before.png after.png --repo owner/repo
 
-# Upload to an issue
+# Follow-up comment on an existing PR/issue
+gh-imgup before.png after.png --pr 42 -m "Before / after: nav redesign"
 gh-imgup repro.png --issue 17
 
-# Just get the URL(s), no comment
+# Machine-friendly forms
 gh-imgup chart.png --raw
 gh-imgup chart.png --json
 ```
@@ -71,8 +78,8 @@ gh-imgup chart.png --json
 | Option | Meaning |
 | --- | --- |
 | `--repo <owner/repo>` | Target repo (default: inferred from git `origin`) |
-| `--pr <n>` / `--issue <n>` | Post a comment embedding the image(s) on that PR/issue |
-| `-m, --message <text>` | Caption included with the image(s) |
+| `--pr <n>` / `--issue <n>` | Post a follow-up comment embedding the image(s) on that PR/issue |
+| `-m, --message <text>` | Caption included in the posted comment |
 | `--json` / `--raw` | Machine output: JSON, or bare URL(s) (default: Markdown) |
 | `--tag <name>` | Release tag (default `_gh-imgup`; must start with `_`) |
 | `--max-size <MB>` | Max file size (default 25) |
@@ -86,8 +93,10 @@ Allowed image types: `.png`, `.jpg`, `.jpeg`, `.gif`, `.webp`. SVG is rejected
 
 `stdout` is machine-parseable only — the Markdown, raw URL(s), or JSON. All
 progress, warnings, and errors go to `stderr`. Exit code is `0` only when every
-upload succeeded. So you can capture the link with `URL=$(gh-imgup shot.png
---raw)` and rely on the exit code; read `stderr` for what happened.
+upload succeeded. For PR/issue body composition, capture the default Markdown
+stdout and insert it into the body. For scripting, capture the link with
+`URL=$(gh-imgup shot.png --raw)` and rely on the exit code; read `stderr` for
+what happened.
 
 ## Auth
 

@@ -225,6 +225,13 @@ enforced. Violating one is a security regression, not a style nit.
 - **Three distribution channels, one codebase.** npm package, `gh`
   extension wrapper (root `gh-imgup` shell script), and `skills/gh-imgup/SKILL.md`
   all point at the same compiled `dist/`. Keep them in sync.
+- **The `gh` extension stays source-install unless binary-named release assets
+  are attached.** Normal versioned GitHub Releases are compatible with the root
+  wrapper; `gh` switches to binary-extension mode only when the latest release
+  has an attached asset whose name ends in a recognized `<os>-<arch>` suffix
+  (for example `darwin-amd64` or `windows-amd64.exe`). GitHub's automatic source
+  archives do not count. Do not attach `gh-imgup-<os>-<arch>` assets unless the
+  project deliberately switches to a precompiled binary extension.
 - **`dist/` is gitignored, so packaging builds it at pack time.** The `prepack`
   script (`npm run build`) is load-bearing: the npm `bin` points at
   `dist/index.js`, and without the hook `npm pack`/`npm publish` from a clean
