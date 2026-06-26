@@ -45,8 +45,12 @@ When in doubt, ask the user before uploading.
 ## Usage
 
 ```bash
-gh-imgup <file...> [options]
+npx @freeasinbird/gh-imgup <file...> [options]
 ```
+
+Invoke it zero-install with `npx` (needs Node 22+). If the CLI is already on
+PATH — a global `npm install -g @freeasinbird/gh-imgup`, or the `gh` extension as
+`gh imgup` — use that instead; the flags are identical.
 
 The tool resolves the target repo from the `--repo` flag or the git `origin`
 remote, resolves a token from `GITHUB_TOKEN` (or the `gh` CLI), uploads each
@@ -62,15 +66,15 @@ Common invocations:
 
 ```bash
 # Preferred agent flow: upload and use stdout in the PR/issue body
-gh-imgup before.png after.png --repo owner/repo
+npx @freeasinbird/gh-imgup before.png after.png --repo owner/repo
 
 # Follow-up comment on an existing PR/issue
-gh-imgup before.png after.png --pr 42 -m "Before / after: nav redesign"
-gh-imgup repro.png --issue 17
+npx @freeasinbird/gh-imgup before.png after.png --pr 42 -m "Before / after: nav redesign"
+npx @freeasinbird/gh-imgup repro.png --issue 17
 
 # Machine-friendly forms
-gh-imgup chart.png --raw
-gh-imgup chart.png --json
+npx @freeasinbird/gh-imgup chart.png --raw
+npx @freeasinbird/gh-imgup chart.png --json
 ```
 
 ### Options
@@ -95,7 +99,7 @@ Allowed image types: `.png`, `.jpg`, `.jpeg`, `.gif`, `.webp`. SVG is rejected
 progress, warnings, and errors go to `stderr`. Exit code is `0` only when every
 upload succeeded. For PR/issue body composition, capture the default Markdown
 stdout and insert it into the body. For scripting, capture the link with
-`URL=$(gh-imgup shot.png --raw)` and rely on the exit code; read `stderr` for
+`URL=$(npx @freeasinbird/gh-imgup shot.png --raw)` and rely on the exit code; read `stderr` for
 what happened.
 
 ## Auth
