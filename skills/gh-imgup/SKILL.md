@@ -1,12 +1,14 @@
 ---
 name: gh-imgup
 description: >-
-  Upload images (screenshots, before/after UI pairs, diagrams) to a GitHub
-  issue or pull request and get back a Markdown/raw/JSON link that renders
-  inline for human reviewers. Use when a change is visual and a screenshot
-  would help a reviewer, or when asked to attach an image to a PR/issue. Uploads
-  via the documented Release Assets API — no browser, no cookies, no third-party
-  hosts. ALWAYS review each image for secrets before uploading.
+  Upload images you already have (screenshots, before/after UI pairs, diagrams)
+  to a GitHub issue or pull request and get back a Markdown/raw/JSON link that
+  renders inline for human reviewers. Use when you have an image in hand to
+  publish or attach to a PR/issue. Capturing it well — deciding what to shoot
+  and getting a clean before/after pair — is a separate upstream step; use a
+  screenshot/capture workflow skill for that if you have one. Uploads via the
+  documented Release Assets API — no browser, no cookies, no third-party hosts.
+  ALWAYS review each image for secrets before uploading.
 ---
 
 # gh-imgup
@@ -17,9 +19,10 @@ then returned as Markdown/raw/JSON for the caller to embed. The returned URL
 renders inline in GitHub Markdown, exactly like a drag-and-drop upload, but is
 fully scriptable.
 
-Use this when you've made a visual change (UI, layout, rendered output, a
-diagram) and a screenshot would tell a reviewer more than prose — especially
-before/after pairs on a PR.
+Use this when you already have the image to attach — a screenshot, a rendered
+diagram, or a before/after pair. Getting a clean, comparable pair is a separate
+capture concern (a screenshot/capture workflow skill, if you use one); this
+skill owns getting the bytes onto the PR/issue safely.
 
 ## MANDATORY: review every image before uploading
 
