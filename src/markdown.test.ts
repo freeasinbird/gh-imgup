@@ -1,6 +1,10 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { escapeAltText, renderInlineMarkdown } from "./markdown.js";
+import {
+  collapseControls,
+  escapeAltText,
+  renderInlineMarkdown,
+} from "./markdown.js";
 
 test("renderInlineMarkdown decodes numeric and named character references", () => {
   // hex and decimal, with and without leading zeros, all resolve to `_`
@@ -50,6 +54,23 @@ test("escapeAltText collapses control chars and line/paragraph separators to one
     codes.map((c) => String.fromCharCode(c)).join("");
   assert.equal(escapeAltText(`a${ch(10)}b`), "a b"); // newline (C0)
   assert.equal(escapeAltText(`a${ch(0, 1)}b`), "a b"); // NUL+SOH run -> one space
+  assert.equal(escapeAltText(`a${ch(0x7f)}b`), "a b"); // DEL
+  assert.equal(escapeAltText(`a${ch(0x9b)}b`), "a b"); // C1 CSI (terminal-escape introducer)
+  assert.equal(escapeAltText(`a${ch(0x85)}b`), "a b"); // C1 NEL
   assert.equal(escapeAltText(`a${ch(0x2028)}b`), "a b"); // line separator
   assert.equal(escapeAltText(`a${ch(0x2029)}b`), "a b"); // paragraph separator
+});
+
+test("collapseControls strips C0/DEL/C1 and separators, collapsing runs", () => {
+  const ch = (...codes: number[]) =>
+    codes.map((c) => String.fromCharCode(c)).join("");
+  // DEL and the C1 block (incl. CSI U+009B) are the gap escapeAltText's old C0
+  // -only collapse missed; a raw one would reach stdout/JSON/stderr/comments.
+  assert.equal(collapseControls(`a${ch(0x7f)}b`), "a b");
+  assert.equal(collapseControls(`a${ch(0x9b)}b`), "a b");
+  assert.equal(collapseControls(`a${ch(0x80, 0x9f)}b`), "a b"); // C1 endpoints, run -> one space
+  assert.equal(collapseControls(`a${ch(0x7f, 0x1b, 0x9b)}b`), "a b"); // mixed C0+DEL+C1 run
+  // Printable ASCII and non-control Unicode are untouched.
+  assert.equal(collapseControls("shot-1a2b3c4d.png"), "shot-1a2b3c4d.png");
+  assert.equal(collapseControls("café"), "café");
 });

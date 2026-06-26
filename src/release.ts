@@ -3,7 +3,7 @@ import { readFileSync, statSync } from "node:fs";
 import { basename, extname } from "node:path";
 import { apiError, decodesToToken, redactBody, redactField } from "./apierr.js";
 import { API, authedFetch, repoPath, sanitize, UPLOADS } from "./auth.js";
-import { renderInlineMarkdown } from "./markdown.js";
+import { collapseControls, renderInlineMarkdown } from "./markdown.js";
 import type { UploadResult } from "./upload.js";
 import type { ImageFile, Repo } from "./validate.js";
 
@@ -406,6 +406,11 @@ export async function uploadAsset(
       ),
     );
   }
+  // Control-char-collapsed name for every display surface: the returned filename
+  // (--json `filename` / the stderr "✓ Uploaded …" line) AND the success-path
+  // no-digest warning below. Computed once so a raw DEL/C1 in the filename can't
+  // reach stderr on a successful upload where the server omits the digest.
+  const displayFilename = collapseControls(displayName);
   // fs errors echo the error CODE only — never err.message, which embeds the
   // full filepath; unlike the checked basename, a directory component could
   // carry an encoded token. file.filename (basename) is checked above.
@@ -611,11 +616,13 @@ export async function uploadAsset(
         ),
       );
     }
-    // file.filename is user-controlled, so the whole warning is sanitized too.
+    // file.filename is user-controlled, so the whole warning is sanitized too;
+    // use the control-char-collapsed display name (this is a success-path stderr
+    // line, so a raw DEL/C1 in the name must not reach the terminal/CI log).
     warn(
       sanitize(
         token,
-        `⚠ Server returned no digest for ${file.filename} — integrity not verified\n`,
+        `⚠ Server returned no digest for ${displayFilename} — integrity not verified\n`,
       ),
     );
   } else if (remote !== localDigest.toLowerCase()) {
@@ -646,7 +653,11 @@ export async function uploadAsset(
   }
 
   return {
-    filename: displayName,
+    // The returned filename echoes verbatim into the --json `filename` field and
+    // the stderr "✓ Uploaded …" progress line, so it uses the control-char-
+    // collapsed display name (the markdown alt is collapsed separately by
+    // escapeAltText).
+    filename: displayFilename,
     url: downloadUrl,
     repo: `${repo.owner}/${repo.name}`,
     // Emit the canonical, verified digest (or "" when omitted) rather than the

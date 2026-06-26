@@ -111,18 +111,54 @@ export function renderInlineMarkdown(s: string): string {
 }
 
 /**
+ * Whether a code point is a control character we collapse out of any value bound
+ * for an output surface: the C0 block (U+0000–U+001F), DEL (U+007F), the C1 block
+ * (U+0080–U+009F — includes CSI U+009B, a terminal-escape introducer), and the
+ * Unicode line/paragraph separators (U+2028/U+2029). This is the C0/DEL/C1 +
+ * line/paragraph set invariant 3 names; matching it via code-point comparison
+ * rather than an escape-range regex avoids the editor/JSON escape-mangling hazard
+ * AGENTS.md flags for control-char character classes.
+ */
+function isCollapsibleControl(cp: number): boolean {
+  return (
+    cp <= 0x1f ||
+    cp === 0x7f ||
+    (cp >= 0x80 && cp <= 0x9f) ||
+    cp === 0x2028 ||
+    cp === 0x2029
+  );
+}
+
+/**
+ * Collapse every maximal run of control characters ({@link isCollapsibleControl})
+ * to a single space, so a user-controlled value can't smuggle a raw control byte
+ * — a terminal escape (DEL/C1/CSI), a newline, or a line/paragraph separator —
+ * onto stdout, a JSON field, stderr, or a comment body, where it could forge log
+ * lines or break the one-line-per-image output contract (invariants 3 and 7).
+ */
+export function collapseControls(s: string): string {
+  let out = "";
+  let inRun = false;
+  for (const ch of s) {
+    if (isCollapsibleControl(ch.codePointAt(0) ?? 0)) {
+      if (!inRun) out += " ";
+      inRun = true;
+    } else {
+      out += ch;
+      inRun = false;
+    }
+  }
+  return out;
+}
+
+/**
  * Escape Markdown link-structural characters in alt text. The stem is a
  * user-controlled filename, so an unescaped `]` would close the `![…]` early and
  * let a crafted name inject its own image target into a PR/issue comment.
- * Backslash-escaping `\`, `[`, and `]` keeps the alt inert; C0 control
- * characters and the Unicode line/paragraph separators collapse to a single
+ * Backslash-escaping `\`, `[`, and `]` keeps the alt inert; control characters
+ * (C0/DEL/C1) and the Unicode line/paragraph separators collapse to a single
  * space so stdout stays one machine-parseable line per image.
  */
 export function escapeAltText(text: string): string {
-  return (
-    text
-      .replace(/[\\[\]]/g, "\\$&")
-      // biome-ignore lint/suspicious/noControlCharactersInRegex: matching control chars is the intent — strip them from user-controlled alt text.
-      .replace(/[\u0000-\u001f\u2028\u2029]+/g, " ")
-  );
+  return collapseControls(text.replace(/[\\[\]]/g, "\\$&"));
 }
