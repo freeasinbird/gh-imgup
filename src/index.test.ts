@@ -369,6 +369,21 @@ test("--cleanup with an upload-only flag fails fast", async () => {
   assert.equal(calls.length, 0);
 });
 
+test("a pre-resolution parse error never leaks the env token to stderr", async () => {
+  // The token leaks if redaction waits for resolveToken: parseArgs runs first, so
+  // an arg echoing the token (e.g. a mis-templated `--bad-<token>`) is sanitized
+  // against the env-seeded token, not "". No file/network is touched.
+  const r = await run([`--bad-${TOKEN}`], {
+    env: { GITHUB_TOKEN: TOKEN } as NodeJS.ProcessEnv,
+    readGhToken: () => null,
+    gitRemote: () => null,
+  });
+  assert.equal(r.exitCode, 1);
+  assert.equal(r.stdout, "");
+  assert.match(r.stderr, /Unknown option/);
+  assert.doesNotMatch(r.stderr, /ghp_TOK/);
+});
+
 test("a validation error never leaks an ENCODED token to stderr", async () => {
   // A missing file named ghp%5FTOK.png (token ghp_TOK) fails validation before
   // any network; the top-level catch must redact the encoded form, not just the
