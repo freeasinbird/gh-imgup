@@ -622,6 +622,51 @@ test("uploadAsset rejects a response URL whose RENDERED form encodes the token",
   assert.match(warnings[0] ?? "", /--cleanup/);
 });
 
+test("uploadAsset collapses control chars in the returned filename", async () => {
+  // The returned filename is echoed verbatim by --json (`filename`) and the
+  // stderr "✓ Uploaded …" line, so a raw DEL/C1 (here CSI U+009B, a terminal-
+  // escape introducer) must be collapsed to a space at the source — not reach
+  // those surfaces. The file on disk is clean; only the logical name carries it.
+  const filepath = join(dir, "ctrl-name.png");
+  writeFileSync(filepath, Buffer.from("BYTES"));
+  const file: ImageFile = {
+    filepath,
+    filename: `shot${String.fromCharCode(0x9b)}x.png`,
+    mime: "image/png",
+    size: 5,
+    sha256: sha256("BYTES"),
+  };
+  const digest = `sha256:${sha256("BYTES")}`;
+  const { impl } = scriptedFetch((req) => uploadOk(req, { digest }));
+  const result = await uploadAsset(TOKEN, REPO, 42, TAG, file, {
+    fetchImpl: impl,
+  });
+  assert.equal(result.filename, "shot x.png"); // CSI collapsed to one space
+});
+
+test("uploadAsset collapses control chars in the no-digest success warning", async () => {
+  // A successful upload where the server omits `digest` warns on stderr using the
+  // filename. That is a success-path stderr line, so it must use the collapsed
+  // name — not echo a raw DEL/C1 (CSI U+009B here) to the terminal / CI log.
+  const filepath = join(dir, "ctrl-warn.png");
+  writeFileSync(filepath, Buffer.from("BYTES"));
+  const file: ImageFile = {
+    filepath,
+    filename: `shot${String.fromCharCode(0x9b)}x.png`,
+    mime: "image/png",
+    size: 5,
+    sha256: sha256("BYTES"),
+  };
+  const warnings: string[] = [];
+  const { impl } = scriptedFetch((req) => uploadOk(req)); // 201 with no digest
+  const result = await uploadAsset(TOKEN, REPO, 42, TAG, file, {
+    fetchImpl: impl,
+    warn: (m) => warnings.push(m),
+  });
+  assert.equal(result.digest, ""); // server omitted the digest -> warn path
+  assert.match(warnings.join(""), /no digest for shot x\.png/); // collapsed, not raw CSI
+});
+
 test("uploadAsset fails closed on a present non-string digest", async () => {
   const file = imageFixture("nonstrdig.png", "BYTES");
   const { impl, calls } = cleanupFetch((req) =>
