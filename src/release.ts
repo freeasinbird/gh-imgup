@@ -3,6 +3,7 @@ import { readFileSync, statSync } from "node:fs";
 import { basename, extname } from "node:path";
 import { apiError, decodesToToken, redactBody, redactField } from "./apierr.js";
 import { API, authedFetch, repoPath, sanitize, UPLOADS } from "./auth.js";
+import { renderInlineMarkdown } from "./markdown.js";
 import type { UploadResult } from "./upload.js";
 import type { ImageFile, Repo } from "./validate.js";
 
@@ -388,8 +389,16 @@ export async function uploadAsset(
   // survives (mixed literal+encoded, or encoded-only) — sanitize can't strip
   // encoded forms, and they'd otherwise reach the public asset name or error
   // messages. Done BEFORE any file I/O. The display/asset name reuses this.
+  // The name also becomes Markdown alt text on stdout, so reject a token hidden
+  // in a RENDERED form too — HTML entities (e.g. `ghp&lowbar;TOK` -> `ghp_TOK`)
+  // that decodesToToken doesn't decode but GitHub's Markdown does. This mirrors
+  // the public comment guard (github.ts) so upload-only stdout gets the same
+  // rendered-form refusal (invariant 3).
   const displayName = sanitize(token, file.filename);
-  if (decodesToToken(displayName, token)) {
+  if (
+    decodesToToken(displayName, token) ||
+    decodesToToken(renderInlineMarkdown(displayName), token)
+  ) {
     throw new Error(
       sanitize(
         token,
@@ -505,7 +514,8 @@ export async function uploadAsset(
   if (
     !isUsableAssetUrl(downloadUrl, repo, tag) ||
     !(downloadUrl.split("/").pop() ?? "").includes(hex) ||
-    decodesToToken(downloadUrl, token)
+    decodesToToken(downloadUrl, token) ||
+    decodesToToken(renderInlineMarkdown(downloadUrl), token)
   ) {
     warn(
       sanitize(
