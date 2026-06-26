@@ -33,12 +33,18 @@ An agent with headless browser access (Playwright MCP, Chrome DevTools MCP, or s
 ```
 1. Check out main, start dev server, screenshot the component    → before.png
 2. Check out PR branch, restart, screenshot the same component   → after.png
-3. gh-imgup before.png after.png --pr 42 -m "Visual diff"
+3. gh-imgup before.png after.png                                → Markdown links
+4. Put those Markdown links in the PR description or issue body
 ```
 
-The reviewer opens the PR and sees the images inline. No branch checkout, no local dev server.
+The reviewer opens the PR and sees the images inline in the body, before any
+follow-up discussion. No branch checkout, no local dev server.
 
-This works today with Claude Code, Codex, or any agent with Playwright in headless mode. Screenshot capture is the agent's responsibility — `gh-imgup` handles only the upload and PR attachment. Clean separation of concerns.
+This works today with Claude Code, Codex, or any agent with Playwright in
+headless mode. Screenshot capture and PR/issue body composition are the agent's
+responsibility — `gh-imgup` handles only the upload and Markdown output. Clean
+separation of concerns. If the PR/issue already exists and the right surface is a
+follow-up comment, `--pr` / `--issue` can post that comment.
 
 ### GitHub Actions Example
 
@@ -60,11 +66,15 @@ jobs:
         run: |
           npx playwright screenshot http://localhost:3000/component before.png
           # (build PR branch, screenshot again as after.png)
-      - name: Upload to PR
+      - name: Upload to PR comment
         run: npx gh-imgup before.png after.png --pr ${{ github.event.pull_request.number }} -m "Visual diff"
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 ```
+
+This CI example uses comment mode because the PR already exists by the time the
+workflow runs. Agents creating or editing the PR body should use the stdout
+Markdown and compose it into that body instead.
 
 ---
 
@@ -385,7 +395,7 @@ Options:
   --repo <owner/repo>   Target repository (default: inferred from git remote)
   --pr <number>         Comment on a pull request
   --issue <number>      Comment on an issue
-  -m, --message <text>  Caption to include
+  -m, --message <text>  Caption to include in a posted comment
   --json                JSON output to stdout
   --raw                 Raw URL(s) only
   --tag <name>          Release tag (default: _gh-imgup, must start with _)
@@ -491,13 +501,13 @@ description: Upload local images to GitHub issues, PRs, and comments
 
 # gh-imgup
 
-Upload screenshots and images to GitHub issues and PRs.
+Upload screenshots and images for GitHub issues and PRs.
 
 ## When to use
 
-- Attach before/after screenshots of UI changes to a PR
+- Attach before/after screenshots of UI changes to a PR body
 - Embed visual regression evidence in a PR for reviewers
-- Upload test result images or rendered components to issues
+- Upload test result images or rendered components for issues
 - Share visual output in a GitHub comment
 
 ## Prerequisites
@@ -525,16 +535,14 @@ On private repos, images are accessible to all repo collaborators.
 
 ## Usage
 
-# Upload + comment on a PR
-gh-imgup screenshot.png --pr 42
+# Preferred agent flow: upload and use stdout in the PR/issue body
+gh-imgup before.png after.png --repo owner/repo
 
-# Upload + comment on an issue
+# Follow-up comment on an existing PR/issue
+gh-imgup before.png after.png --pr 42 -m "Visual diff: Button component"
 gh-imgup error.png --issue 10
 
-# Before/after with caption
-gh-imgup before.png after.png --pr 42 -m "Visual diff: Button component"
-
-# Upload only (returns markdown)
+# Upload only (returns Markdown)
 gh-imgup screenshot.png --repo owner/repo
 
 # Machine-readable output
@@ -547,9 +555,10 @@ in sequence:
 
 1. Start the dev server
 2. Use Playwright to screenshot the component at localhost
-3. gh-imgup the screenshot to the PR
+3. gh-imgup the screenshot and put the returned Markdown in the PR/issue body
 
-The capture is your responsibility. gh-imgup handles the upload.
+The capture and body edit are your responsibility. gh-imgup handles the upload
+and Markdown output.
 
 ## How it works
 
@@ -578,7 +587,7 @@ Three channels, same npm package, different users.
 ### npm package (primary)
 
 ```
-npx gh-imgup screenshot.png --pr 42      # zero-install, run directly
+npx gh-imgup screenshot.png              # zero-install, run directly
 npm install -g gh-imgup                   # global install
 ```
 
@@ -587,17 +596,24 @@ Standard distribution for a Node.js CLI with zero runtime deps. Works everywhere
 Pin versions in CI:
 
 ```
-npx gh-imgup@1.0.0 screenshot.png --pr 42
+npx gh-imgup@1.0.0 screenshot.png
 ```
 
 ### `gh` CLI extension
 
 ```
 gh extension install <owner>/gh-imgup
-gh imgup screenshot.png --pr 42
+gh imgup screenshot.png
 ```
 
-The repo includes a `gh-imgup` shell wrapper at the root (required by `gh extension install`). `gh extension install` clones the source, and `dist/` is a gitignored build artifact, so the wrapper resolves its own directory, builds `dist/` once if the build is stale (locally, `npm run build` — no registry access), and then execs the compiled CLI:
+The repo includes a `gh-imgup` shell wrapper at the root (required by
+`gh extension install`). `gh extension install` takes this source-clone path
+unless the latest release contains an attached binary asset with a recognized
+platform suffix such as `darwin-amd64` or `windows-amd64.exe`. Normal source-only
+releases therefore keep using the wrapper. Because `dist/` is a gitignored build
+artifact, the wrapper resolves its own directory, builds `dist/` once if the
+build is stale (locally, `npm run build` — no registry access), and then execs
+the compiled CLI:
 
 ```bash
 #!/usr/bin/env bash
