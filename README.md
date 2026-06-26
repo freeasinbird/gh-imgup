@@ -2,15 +2,12 @@
 
 A CLI tool that uploads images to GitHub issues and pull requests using the documented Release Assets API. Designed for agents and CI workflows that need to attach screenshots — particularly before/after UI images — to PRs for human reviewers.
 
-> **Status: pre-release.** The CLI is implemented and tested — image upload with
-> SHA-256 integrity verification, optional PR/issue comments, and interactive
-> `--cleanup`. It is **not yet published to npm** and no versioned `gh`-extension
-> release has been cut, so for now it runs from a source build (see
-> [Distribution](#distribution)). The examples below describe current behavior.
-> Development notes are in [AGENTS.md](AGENTS.md) and the [devlog](devlog/); the
-> design spec is in [`docs/design.md`](docs/design.md).
+> **Status:** Published on npm as [`@freeasinbird/gh-imgup`](https://www.npmjs.com/package/@freeasinbird/gh-imgup) —
+> image upload with SHA-256 integrity verification, optional PR/issue comments,
+> and interactive `--cleanup`. Development notes are in [AGENTS.md](AGENTS.md)
+> and the [devlog](devlog/); the design spec is in [`docs/design.md`](docs/design.md).
 >
-> **Versioning.** It will ship as **0.x** while real-world usage accrues. The CLI
+> **Versioning.** It ships as **0.x** while real-world usage accrues. The CLI
 > flags and the machine-output contract (`--json`/`--raw`/exit codes) are stable
 > by intent, but `0.x` means they are not yet a frozen semver promise — `1.0.0`
 > will freeze them, cut once usage justifies committing to that guarantee.
@@ -31,8 +28,6 @@ npx @freeasinbird/gh-imgup screenshot.png --repo owner/repo --pr 42 -m "Login sc
 Needs a `GITHUB_TOKEN` with `contents:write` (add `issues:write` for `--pr`/`--issue`), or a logged-in `gh` CLI. Run it inside the target repo and `--repo` is inferred from the git remote.
 
 **Using an agent (Claude Code, Cursor, Codex)?** Also add the [skill](#agent-skill-claude-code-cursor-codex): `npx skills add freeasinbird/gh-imgup` gives the agent the usage guidance and the mandatory pre-upload image review. It does **not** install the CLI — the agent still runs `gh-imgup` from one of the options in [Distribution](#distribution).
-
-> The `npx` command is the intended published usage. **It is not on npm yet** — until then, run it via the [`gh` extension](#gh-cli-extension) or a [source build](#distribution).
 
 ---
 
@@ -194,12 +189,7 @@ jobs:
 
 This example uses comment mode because the PR already exists by the time a
 `pull_request` workflow runs. Agents creating or editing the PR body should use
-the stdout-composition flow above instead. Until the package is published,
-replace the `npx @freeasinbird/gh-imgup …` step with a build from source — check out this
-repo, run `npm ci --include=dev && npm run build`, then `node dist/index.js …`.
-Run from the gh-imgup checkout, also pass `--repo ${{ github.repository }}`
-(with absolute paths to the screenshots), since the tool would otherwise infer
-the repo from the gh-imgup checkout rather than the workflow's.
+the stdout-composition flow above instead.
 
 ---
 
@@ -299,15 +289,14 @@ GitHub's web UI produces `user-attachments/assets/{uuid}` URLs. This tool produc
 
 ## Distribution
 
-### npm (planned — not yet published)
+### npm
 
-The package is not on the npm registry yet. Once published, it is intended to run
-via `npx @freeasinbird/gh-imgup …` (zero-install) or a global `npm install -g @freeasinbird/gh-imgup`, with a
-pinned version for CI. Until then, use the `gh` extension below, or run the built
-CLI from a source checkout (`npm ci --include=dev && npm run build`, then
-`node dist/index.js …`). When you invoke it from the gh-imgup checkout, pass
-`--repo owner/repo` for your target repo — otherwise it infers the repo from that
-checkout's git remote, not your project's.
+Run it zero-install with `npx @freeasinbird/gh-imgup …`, or install it globally
+with `npm install -g @freeasinbird/gh-imgup`. Pin a version in CI, e.g.
+`npx @freeasinbird/gh-imgup@0.1.0 …`. When you run it from a different repo's
+checkout (e.g. the gh-imgup source) rather than your project's, pass
+`--repo owner/repo` — otherwise it infers the repo from that checkout's git
+remote.
 
 ### `gh` CLI extension
 

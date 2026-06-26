@@ -7,7 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-Nothing is published to npm yet; everything below is the current state on `main`.
+## [0.1.0] - 2026-06-26
+
+First public release on npm as `@freeasinbird/gh-imgup`.
 
 ### Added
 
@@ -56,4 +58,5 @@ Nothing is published to npm yet; everything below is the current state on `main`
   internal URLs, and PII) a mandatory step — the highest-impact control, since
   the upload is secure but the risk is what gets uploaded.
 
-[Unreleased]: https://github.com/freeasinbird/gh-imgup/commits/main
+[Unreleased]: https://github.com/freeasinbird/gh-imgup/compare/v0.1.0...HEAD
+[0.1.0]: https://github.com/freeasinbird/gh-imgup/releases/tag/v0.1.0
