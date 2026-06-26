@@ -201,7 +201,7 @@ jobs:
           # ... (build PR branch, screenshot again as after.png)
 
       - name: Upload to PR comment
-        run: npx gh-imgup before.png after.png --pr ${{ github.event.pull_request.number }} -m "Visual diff"
+        run: npx @freeasinbird/gh-imgup before.png after.png --pr ${{ github.event.pull_request.number }} -m "Visual diff"
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 ```
@@ -209,7 +209,7 @@ jobs:
 This example uses comment mode because the PR already exists by the time a
 `pull_request` workflow runs. Agents creating or editing the PR body should use
 the stdout-composition flow above instead. Until the package is published,
-replace the `npx gh-imgup …` step with a build from source — check out this
+replace the `npx @freeasinbird/gh-imgup …` step with a build from source — check out this
 repo, run `npm ci --include=dev && npm run build`, then `node dist/index.js …`.
 Run from the gh-imgup checkout, also pass `--repo ${{ github.repository }}`
 (with absolute paths to the screenshots), since the tool would otherwise infer
@@ -283,7 +283,7 @@ GitHub's web UI produces `user-attachments/assets/{uuid}` URLs. This tool produc
 ### npm (planned — not yet published)
 
 The package is not on the npm registry yet. Once published, it is intended to run
-via `npx gh-imgup …` (zero-install) or a global `npm install -g gh-imgup`, with a
+via `npx @freeasinbird/gh-imgup …` (zero-install) or a global `npm install -g @freeasinbird/gh-imgup`, with a
 pinned version for CI. Until then, use the `gh` extension below, or run the built
 CLI from a source checkout (`npm ci --include=dev && npm run build`, then
 `node dist/index.js …`). When you invoke it from the gh-imgup checkout, pass

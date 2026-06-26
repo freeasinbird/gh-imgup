@@ -67,7 +67,7 @@ jobs:
           npx playwright screenshot http://localhost:3000/component before.png
           # (build PR branch, screenshot again as after.png)
       - name: Upload to PR comment
-        run: npx gh-imgup before.png after.png --pr ${{ github.event.pull_request.number }} -m "Visual diff"
+        run: npx @freeasinbird/gh-imgup before.png after.png --pr ${{ github.event.pull_request.number }} -m "Visual diff"
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 ```
@@ -587,8 +587,8 @@ Three channels, same npm package, different users.
 ### npm package (primary)
 
 ```
-npx gh-imgup screenshot.png              # zero-install, run directly
-npm install -g gh-imgup                   # global install
+npx @freeasinbird/gh-imgup screenshot.png   # zero-install, run directly
+npm install -g @freeasinbird/gh-imgup       # global install
 ```
 
 Standard distribution for a Node.js CLI with zero runtime deps. Works everywhere Node 22+ is available: local dev, CI, agent sandboxes. The compiled JS is small — no bundler needed.
@@ -596,7 +596,7 @@ Standard distribution for a Node.js CLI with zero runtime deps. Works everywhere
 Pin versions in CI:
 
 ```
-npx gh-imgup@1.0.0 screenshot.png
+npx @freeasinbird/gh-imgup@0.1.0 screenshot.png
 ```
 
 ### `gh` CLI extension
