@@ -4,8 +4,8 @@ name: Release
 # NPM_TOKEN secret, and provenance is generated automatically. The very first
 # publish of the package is manual (the trusted publisher is configured on the
 # package, which must already exist); this workflow handles every release after
-# that (v0.1.1 onward). Pushing the tag for an already-published version will
-# fail at `npm publish` — expected.
+# that (v0.1.1 onward). Re-tagging an already-published version is a no-op — the
+# publish step skips when that version is already on the registry.
 on:
   push:
     tags:
@@ -47,6 +47,16 @@ jobs:
       # `npm publish` runs the package's own gates: prepack (build) and
       # prepublishOnly (lint + typecheck + test). No token and no --provenance
       # flag — provenance is automatic under trusted publishing. publishConfig in
-      # package.json publishes the scoped package publicly.
-      - name: Publish to npm
-        run: npm publish
+      # package.json publishes the scoped package publicly. The pre-check makes
+      # this idempotent: re-tagging a version already on the registry is a green
+      # no-op (a genuine auth/OIDC/network failure still fails, since it isn't
+      # "version already exists").
+      - name: Publish to npm (skip if this version is already published)
+        run: |
+          pkg="$(node -p "require('./package.json').name")"
+          ver="$(node -p "require('./package.json').version")"
+          if npm view "$pkg@$ver" version >/dev/null 2>&1; then
+            echo "$pkg@$ver is already published — skipping."
+            exit 0
+          fi
+          npm publish
