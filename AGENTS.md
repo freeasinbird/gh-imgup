@@ -202,6 +202,13 @@ enforced. Violating one is a security regression, not a style nit.
 
 ## Conventions & gotchas
 
+- **Versioning: `0.x` until the contract is deliberately frozen at `1.0.0`.**
+  The first publish is `0.x` (a soft launch while real-world usage accrues). The
+  CLI surface and the machine-output contract (invariant 7) are stable by intent
+  — avoid gratuitous breaks — but `0.x` signals the formal semver promise isn't
+  made yet. `1.0.0` freezes that contract and is a deliberate human call once
+  usage justifies it; don't bump to `1.0` (or break the contract assuming a minor
+  may) without that decision. See issue #16.
 - **Prerelease, never draft.** The `_gh-imgup` release must be a
   prerelease — draft releases can't be resolved by tag, so asset
   `browser_download_url`s 404. This is load-bearing, not a preference.
