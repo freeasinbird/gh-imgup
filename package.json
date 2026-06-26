@@ -7,13 +7,15 @@
     "gh-imgup": "dist/index.js"
   },
   "files": [
-    "dist"
+    "dist",
+    "!dist/**/*.test.js"
   ],
   "engines": {
     "node": ">=22"
   },
   "scripts": {
     "build": "tsc",
+    "prepack": "npm run build",
     "typecheck": "tsc --noEmit",
     "test": "npm run build && node --test dist/*.test.js",
     "lint": "biome check .",
