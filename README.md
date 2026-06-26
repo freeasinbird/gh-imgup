@@ -9,6 +9,11 @@ A CLI tool that uploads images to GitHub issues and pull requests using the docu
 > [Distribution](#distribution)). The examples below describe current behavior.
 > Development notes are in [AGENTS.md](AGENTS.md) and the [devlog](devlog/); the
 > design spec is in [`docs/design.md`](docs/design.md).
+>
+> **Versioning.** It will ship as **0.x** while real-world usage accrues. The CLI
+> flags and the machine-output contract (`--json`/`--raw`/exit codes) are stable
+> by intent, but `0.x` means they are not yet a frozen semver promise — `1.0.0`
+> will freeze them, cut once usage justifies committing to that guarantee.
 
 ---
 
