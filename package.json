@@ -1,5 +1,5 @@
 {
-  "name": "gh-imgup",
+  "name": "@freeasinbird/gh-imgup",
   "version": "0.1.0",
   "description": "Securely upload images to GitHub issues & PRs via the Release Assets API — zero deps, no browser.",
   "type": "module",
@@ -10,6 +10,9 @@
     "dist",
     "!dist/**/*.test.js"
   ],
+  "publishConfig": {
+    "access": "public"
+  },
   "engines": {
     "node": ">=22"
   },
