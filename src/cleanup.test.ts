@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { cleanup } from "./cleanup.js";
+import { cleanup, rawNextLink } from "./cleanup.js";
 import type { Repo } from "./validate.js";
 
 const REPO: Repo = { owner: "o", name: "r" };
@@ -51,6 +51,8 @@ interface ApiOpts {
   issues?: string[];
   /** Multi-page issues — each entry is one page; pages link forward GitHub-style. */
   issuePages?: string[][];
+  /** Extra Link params inserted before rel="next" on the issue-pages link (e.g. `; type="x"`). */
+  issueLinkExtraParams?: string;
   /** Raw items for the /issues page — to inject malformed shapes the typed helpers can't. */
   issuesRaw?: unknown[];
   issuesHeaders?: Record<string, string>;
@@ -106,10 +108,13 @@ function api(opts: ApiOpts = {}) {
         const items = bodies(opts.issuePages[page - 1] ?? []);
         // Mirror GitHub's real rel=next: the numeric /repositories/{id} path
         // form, the original query preserved, plus an opaque `after` cursor.
+        // `extra` lets a test place another link-param before rel="next" — a
+        // valid RFC 8288 shape (e.g. `type="…"`) the old positional regex missed.
+        const extra = opts.issueLinkExtraParams ?? "";
         const headers: Record<string, string> =
           page < opts.issuePages.length
             ? {
-                Link: `<https://api.github.com/repositories/123/issues?state=all&per_page=100&after=CUR${page}&page=${page + 1}>; rel="next"`,
+                Link: `<https://api.github.com/repositories/123/issues?state=all&per_page=100&after=CUR${page}&page=${page + 1}>${extra}; rel="next"`,
               }
             : {};
         return json(items, 200, headers);
@@ -584,6 +589,75 @@ test("follows GitHub's real rel=next (numeric repo path + cursor) across pages",
   assert.ok(
     a.calls.some((c) => c.url.includes("/repositories/123/issues")),
     "expected the scan to follow the numeric-id rel=next link",
+  );
+});
+
+test("rawNextLink finds rel=next regardless of parameter order", () => {
+  const u = "https://api.github.com/repos/o/r/issues?page=2";
+  // rel="next" immediately after the target (the only shape the old regex handled)
+  assert.equal(rawNextLink(`<${u}>; rel="next"`), u);
+  // rel="next" AFTER another valid param — the regression: a positional regex
+  // missed this and ended the scan a page early (delete-a-live-asset direction).
+  assert.equal(rawNextLink(`<${u}>; type="application/json"; rel="next"`), u);
+  // rel before another param, and multiple relation tokens in one rel value.
+  assert.equal(rawNextLink(`<${u}>; rel="next"; type="x"`), u);
+  assert.equal(rawNextLink(`<${u}>; rel="https://x next"`), u);
+  // Relation types are case-insensitive.
+  assert.equal(rawNextLink(`<${u}>; rel="NEXT"`), u);
+  // A comma inside the target isn't a link-value delimiter.
+  const c = "https://api.github.com/repos/o/r/issues?after=a,b&page=2";
+  assert.equal(rawNextLink(`<${c}>; rel="next"`), c);
+  // Picks the next link out of several link-values.
+  assert.equal(
+    rawNextLink(`<${u}>; rel="prev", <${u}>; rel="next", <x>; rel="last"`),
+    u,
+  );
+});
+
+test("rawNextLink returns null only when there is genuinely no next page", () => {
+  assert.equal(rawNextLink(null), null);
+  assert.equal(rawNextLink(""), null);
+  assert.equal(rawNextLink("  "), null);
+  // A legitimate last page carries prev/first/last links but no next.
+  assert.equal(rawNextLink('<https://api.github.com/x>; rel="last"'), null);
+});
+
+test("rawNextLink fails closed (throws) on a malformed Link header", () => {
+  // A present-but-unparseable header must NOT read as "no next page" — that would
+  // silently truncate the scan. Each of these aborts cleanup via listPages.
+  for (const bad of [
+    "garbage-no-brackets",
+    '<https://api.github.com/x; rel="next"', // unterminated target
+    '<https://api.github.com/x>; rel="next', // unterminated quote
+    '<a>; rel="next" <b>; rel="next"', // missing comma between link-values
+    // Duplicate rel in one link-value: RFC 8288 keeps the first, but reinterpreting
+    // `next; last` would skip a page — fail closed instead of guessing.
+    '<https://api.github.com/x>; rel="next"; rel="last"',
+    // Empty/valueless rel carries no relation token; treating it as "no next"
+    // could end the scan early — fail closed.
+    "<https://api.github.com/x>; rel",
+    "<https://api.github.com/x>; rel=",
+    '<https://api.github.com/x>; rel=""',
+  ]) {
+    assert.throws(() => rawNextLink(bad), /unparseable Link header/, bad);
+  }
+});
+
+test("follows a rel=next link that has another param before rel (page 2 kept)", async () => {
+  // End-to-end regression: the page-2 reference must be seen even when the Link
+  // header places `type="…"` before `rel="next"`. Before the parser fix the scan
+  // stopped at page 1 and would have deleted this live asset.
+  const A = asset(1, "orphan.png");
+  const a = api({
+    assets: [A],
+    issuePages: [["nothing here"], [`see ![x](${A.url})`]],
+    issueLinkExtraParams: '; type="application/json"',
+  });
+  await cleanup(TOKEN, REPO, TAG, baseDeps(a.impl));
+  assert.deepEqual(a.deleted, []); // page-2 reference seen -> kept
+  assert.ok(
+    a.calls.some((c) => c.url.includes("after=CUR1")),
+    "expected the scan to follow the param-before-rel next link to page 2",
   );
 });
 

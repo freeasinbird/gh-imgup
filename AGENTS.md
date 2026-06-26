@@ -154,8 +154,14 @@ enforced. Violating one is a security regression, not a style nit.
    Requests go to exactly `api.github.com` and `uploads.github.com`, over
    HTTPS (the token never traverses plaintext, even to an allowed host),
    with `redirect: 'error'` (a redirect elsewhere fails rather than being
-   silently followed). The `Link` rel=next pagination URL re-enters the same
-   host allowlist. There is no fallback host; missing/invalid credentials
+   silently followed). On the `--cleanup` destructive path the `Link` rel=next
+   pagination URL is not just re-checked against the host allowlist but bound to
+   the surface being scanned — same endpoint, same repo (accepting GitHub's
+   numeric `/repositories/{id}` rewrite, re-bound to this repo's id), original
+   query preserved, page advancing by exactly one — with the opaque `after`
+   cursor as a documented residual; a `Link` header that is present but can't be
+   safely parsed fails closed (aborts before any delete) rather than reading as
+   "no next page". There is no fallback host; missing/invalid credentials
    fail loudly. Never add an alternative destination.
 
 5. **Strict MIME allowlist, no inference.** Only `.png/.jpg/.jpeg/.gif/.webp`
