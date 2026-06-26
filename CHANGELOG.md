@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- `--help` now lists the full pre-upload review checklist (credentials,
+  internal hostnames/IPs/infrastructure, customer data/PII, and anything not
+  meant to be shared) instead of a one-line "review for secrets". The CLI is
+  the only review guidance bundled in the npm package, so the complete surface
+  now ships with the tool for agents/users who don't load the skill.
+
 ## [0.1.1] - 2026-06-26
 
 ### Changed
