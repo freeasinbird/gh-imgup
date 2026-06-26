@@ -1,16 +1,9 @@
 # gh-imgup
 
-A CLI tool that uploads images to GitHub issues and pull requests using the documented Release Assets API. Designed for agents and CI workflows that need to attach screenshots — particularly before/after UI images — to PRs for human reviewers.
+[![npm](https://img.shields.io/npm/v/@freeasinbird/gh-imgup)](https://www.npmjs.com/package/@freeasinbird/gh-imgup)
+[![CI](https://github.com/freeasinbird/gh-imgup/actions/workflows/ci.yml/badge.svg)](https://github.com/freeasinbird/gh-imgup/actions/workflows/ci.yml)
 
-> **Status:** Published on npm as [`@freeasinbird/gh-imgup`](https://www.npmjs.com/package/@freeasinbird/gh-imgup) —
-> image upload with SHA-256 integrity verification, optional PR/issue comments,
-> and interactive `--cleanup`. Development notes are in [AGENTS.md](AGENTS.md)
-> and the [devlog](devlog/); the design spec is in [`docs/design.md`](docs/design.md).
->
-> **Versioning.** It ships as **0.x** while real-world usage accrues. The CLI
-> flags and the machine-output contract (`--json`/`--raw`/exit codes) are stable
-> by intent, but `0.x` means they are not yet a frozen semver promise — `1.0.0`
-> will freeze them, cut once usage justifies committing to that guarantee.
+A CLI tool that uploads images to GitHub issues and pull requests using the documented Release Assets API. Designed for agents and CI workflows that need to attach screenshots — particularly before/after UI images — to PRs for human reviewers.
 
 ---
 
@@ -287,6 +280,15 @@ GitHub's web UI produces `user-attachments/assets/{uuid}` URLs. This tool produc
 
 ---
 
+## Versioning
+
+`gh-imgup` is **0.x** while real-world usage accrues: the CLI flags and the
+machine-output contract (`--json` / `--raw` / exit codes) are stable by intent,
+but `0.x` means they are not yet a frozen semver promise. `1.0.0` will freeze
+them, cut once usage justifies committing to that guarantee.
+
+---
+
 ## Distribution
 
 ### npm
@@ -392,7 +394,7 @@ Zero runtime dependencies — the entire audit surface is the `src/` TypeScript 
 
 ## Contributing
 
-Development conventions — branches, pull requests, commits, build commands, and the security invariants that define the project — live in [AGENTS.md](AGENTS.md). Human contribution guidance is in [CONTRIBUTING.md](CONTRIBUTING.md).
+Development conventions — branches, pull requests, commits, build commands, and the security invariants that define the project — live in [AGENTS.md](AGENTS.md). Human contribution guidance is in [CONTRIBUTING.md](CONTRIBUTING.md). The reasoning trail is in the [devlog](devlog/), and the full design spec is in [`docs/design.md`](docs/design.md).
 
 ## License
 

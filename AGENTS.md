@@ -109,7 +109,35 @@ Intended npm scripts (single command each, runnable in CI):
 - **CI** (`.github/workflows/ci.yml`) runs `npm run lint`, `npm run typecheck`,
   and `npm test` (which builds) on every PR and push to `main`. The workflow
   conventions below assume these checks exist and gate merges — keep them
-  green and don't remove the gate.
+  green and don't remove the gate. Branch protection on `main` enforces this: a
+  PR with the `check` job green is required to merge, admin-enforced (no direct
+  pushes to `main`, even for the owner).
+
+## Releases
+
+Published to npm as `@freeasinbird/gh-imgup` (scoped under the org), `0.x` until
+the output contract is deliberately frozen at `1.0` (see the versioning bullet
+under Conventions & gotchas).
+
+- **Publishing is OIDC Trusted Publishing — no `NPM_TOKEN`.**
+  `.github/workflows/release.yml` triggers on a `vX.Y.Z` tag, runs with
+  `id-token: write`, upgrades to npm ≥ 11.5.1 (OIDC requires it), and
+  `npm publish`es — provenance is automatic (no `--provenance` flag). The trusted
+  publisher is configured on npmjs.com (this repo + `release.yml`, environment
+  blank, allowed action `npm publish`).
+- **Scoped packages publish PRIVATE by default** — `publishConfig.access:
+  "public"` in `package.json` is load-bearing; don't remove it. (`prepack` builds
+  `dist/` at publish time and `prepublishOnly` gates it — see the packaging
+  gotcha under Conventions.)
+- **Cutting a release:** bump the `package.json` version in a PR, then push the
+  matching `vX.Y.Z` tag — `release.yml` publishes. The publish step is idempotent
+  (skips when that version is already on the registry), so re-tagging is safe;
+  the first `v0.1.0` tag (the package was published manually first) was a green
+  no-op for this reason.
+- **The first publish was manual** — the trusted publisher can only be configured
+  on an already-published package; every release after is the tag flow above.
+- Never attach `*-<os>-<arch>` release assets — it flips `gh extension install`
+  into binary mode (see the gh-extension gotcha under Conventions).
 
 ## Architecture invariants
 
