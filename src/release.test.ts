@@ -561,6 +561,67 @@ test("uploadAsset keeps the token out of the asset name and returned filename", 
   assert.doesNotMatch(result.filename, /ghp_tok/i); // returned filename redacted
 });
 
+test("uploadAsset rejects a filename whose RENDERED form encodes the token", async () => {
+  // `&lowbar;` is the HTML entity for `_`; GitHub's Markdown renders
+  // `ghp&lowbar;TOK` as `ghp_TOK`, but decodesToToken doesn't decode entities.
+  // The name becomes Markdown alt on stdout, so refuse it like the comment guard
+  // — and before any file read (the token must not survive into a read error).
+  const missing: ImageFile = {
+    filepath: join(dir, "does-not-exist.png"),
+    filename: "ghp&lowbar;TOK.png",
+    mime: "image/png",
+    size: 10,
+    sha256: "0".repeat(64),
+  };
+  const { impl, calls } = scriptedFetch(() => {
+    throw new Error("fetch should not be reached");
+  });
+  await assert.rejects(
+    () => uploadAsset(TOKEN, REPO, 42, TAG, missing, { fetchImpl: impl }),
+    (err: Error) => {
+      assert.match(err.message, /encodes the token/);
+      assert.doesNotMatch(err.message, /ghp_tok/i);
+      return true;
+    },
+  );
+  assert.equal(calls.length, 0);
+});
+
+test("uploadAsset rejects a response URL whose RENDERED form encodes the token", async () => {
+  // A tampered 201 can return a validly-shaped, our-hex-bearing URL that hides
+  // the token behind an HTML entity: `ghp&lowbar;TOK` passes isUsableAssetUrl and
+  // decodesToToken (no percent/literal token) yet renders to the token on stdout.
+  // The returned-URL guard must reject it (invariant 9 + rendered-form, invariant 3).
+  const file = imageFixture("shot.png", "BYTES");
+  const warnings: string[] = [];
+  const { impl, calls } = scriptedFetch((req) => {
+    if (req.method !== "POST") throw new Error(`unexpected ${req.method}`);
+    const sentName = new URL(req.url).searchParams.get("name") ?? "";
+    const hex = sentName.match(/-([0-9a-f]{8})\.png$/)?.[1] ?? "";
+    return json(
+      {
+        id: 8,
+        browser_download_url: `https://github.com/o/r/releases/download/_gh-imgup/ghp&lowbar;TOK-${hex}.png`,
+      },
+      201,
+    );
+  });
+  await assert.rejects(
+    () =>
+      uploadAsset(TOKEN, REPO, 42, TAG, file, {
+        fetchImpl: impl,
+        warn: (m) => warnings.push(m),
+      }),
+    (err: Error) => {
+      assert.match(err.message, /unusable asset URL/);
+      assert.doesNotMatch(err.message, /ghp_tok/i);
+      return true;
+    },
+  );
+  assert.ok(!calls.some((c) => c.method === "DELETE")); // unverified id: never delete
+  assert.match(warnings[0] ?? "", /--cleanup/);
+});
+
 test("uploadAsset fails closed on a present non-string digest", async () => {
   const file = imageFixture("nonstrdig.png", "BYTES");
   const { impl, calls } = cleanupFetch((req) =>
