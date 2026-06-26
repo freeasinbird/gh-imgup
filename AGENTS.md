@@ -102,7 +102,7 @@ Intended npm scripts (single command each, runnable in CI):
 | Test        | `npm test`         | builds, then `node --test dist/*.test.js` (built-in runner + `node:assert`); tests run against compiled output, not type-stripped source |
 | Lint        | `npm run lint`     | `biome check .`                                    |
 | Format      | `npm run format`   | `biome format --write .`                           |
-| Run (local) | `node dist/index.js <file...> [options]` | or `npx gh-imgup …` once published |
+| Run (local) | `node dist/index.js <file...> [options]` | or `npx @freeasinbird/gh-imgup …` once published |
 
 - **CLAUDE.md is a pointer** that imports this file (`@AGENTS.md`). Edit
   AGENTS.md, never the pointer.
