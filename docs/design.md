@@ -111,7 +111,7 @@ Single env var. Resolution:
 
 The tool detects a 403 on any step and tells the user exactly which scope is missing, rather than printing a raw API error.
 
-**`contents:write` is broader than we'd like.** It also permits pushing commits, creating/deleting tags, and creating/deleting files via the Contents API. There is no `releases:write`-only scope in GitHub's current permission model. If the token leaks, an attacker can push code. The tool documents this tradeoff explicitly in its help output and README.
+**`contents:write` is broader than we'd like.** It also permits pushing commits, creating/deleting tags, and creating/deleting files via the Contents API. There is no `releases:write`-only scope in GitHub's current permission model. If the token leaks, an attacker can push code. The tool documents this tradeoff explicitly in its README (the `--help` output names the required `contents:write` scope but not its breadth).
 
 **GitHub Actions note.** The default `GITHUB_TOKEN` has `contents: write` on `push` events but only `contents: read` on `pull_request` events. PR-triggered workflows (the most natural use case) need explicit permissions:
 
@@ -597,14 +597,16 @@ gh extension install <owner>/gh-imgup
 gh imgup screenshot.png --pr 42
 ```
 
-The repo includes a `gh-imgup` shell wrapper at the root (required by `gh extension install`):
+The repo includes a `gh-imgup` shell wrapper at the root (required by `gh extension install`). `gh extension install` clones the source, and `dist/` is a gitignored build artifact, so the wrapper resolves its own directory, builds `dist/` once if the build is stale (locally, `npm run build` — no registry access), and then execs the compiled CLI:
 
 ```bash
 #!/usr/bin/env bash
-npx --yes gh-imgup "$@"
+# (abridged) resolve this script's real dir into $ext_dir, ensure $ext_dir/dist
+# is built, then hand off to Node:
+exec node "$ext_dir/dist/index.js" "$@"
 ```
 
-This gives the `gh imgup` subcommand UX. `gh` handles updates via `gh extension upgrade`.
+It does not shell out to `npx` or the npm registry: running `gh imgup` only ever contacts GitHub, and works offline once built. This gives the `gh imgup` subcommand UX; `gh` handles updates via `gh extension upgrade`.
 
 ### Agent skill
 
