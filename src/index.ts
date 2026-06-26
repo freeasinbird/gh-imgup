@@ -248,7 +248,15 @@ export async function run(
   const warn = (m: string) => {
     stderr.push(m);
   };
-  let token = "";
+  // Seed the redaction token from the environment BEFORE parseArgs so a parse or
+  // validation error that echoes an argument (e.g. `Unknown option: --bad-<tok>`)
+  // can't leak a token embedded in argv. resolveToken runs only after parsing, so
+  // without this seed the catch below would redact against token="" during the
+  // whole pre-resolution window (invariant 3). resolveToken overwrites this with
+  // the authoritative token (possibly the gh-CLI fallback) once it runs; the gh
+  // token isn't knowable here without its subprocess and isn't an argv-injection
+  // vector, so the env token is the right pre-resolution redaction scope.
+  let token = ((deps.env ?? process.env).GITHUB_TOKEN ?? "").trim();
   try {
     const args = parseArgs(argv);
     if (args.help) return { stdout: HELP, stderr: "", exitCode: 0 };
