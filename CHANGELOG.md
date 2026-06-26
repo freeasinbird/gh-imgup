@@ -15,7 +15,9 @@ Nothing is published to npm yet; everything below is the current state on `main`
   or more images as assets on a dedicated prerelease (`_gh-imgup`) on the same
   repository, and prints a link that renders inline in GitHub Markdown.
 - **PR/issue comments.** `--pr <n>` / `--issue <n>` post a comment embedding the
-  uploaded image(s); `-m/--message` adds a caption to that comment.
+  uploaded image(s); `-m/--message` adds a caption to that comment. Passing
+  `-m/--message` without `--pr`/`--issue` warns on stderr that it is ignored (it
+  only captions a posted comment); the upload still succeeds.
 - **Output formats.** Markdown (default), `--raw` (bare URL[s]), and `--json`.
   stdout is machine-parseable only and written only on full success; all
   human-facing progress, warnings, and errors go to stderr.

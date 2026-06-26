@@ -333,6 +333,16 @@ export async function run(
           ? validateNumber(args.issue)
           : undefined;
 
+    // --message only captions a posted comment; on an upload-only run it would be
+    // silently dropped. Warn (don't fail) so the upload still succeeds — the
+    // message text isn't echoed, so there's nothing to sanitize.
+    if (args.message !== undefined && commentNumber === undefined) {
+      warn(
+        "⚠ Ignoring --message: it only captions a --pr/--issue comment, and " +
+          "neither was given.\n",
+      );
+    }
+
     // Validate every file up front (fail-fast) before touching the network.
     const files: ImageFile[] = args.files.map((f) =>
       validateImageFile(f, maxBytes),
