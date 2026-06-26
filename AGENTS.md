@@ -134,6 +134,13 @@ under Conventions & gotchas).
   (skips when that version is already on the registry), so re-tagging is safe;
   the first `v0.1.0` tag (the package was published manually first) was a green
   no-op for this reason.
+- **A version bump must also commit `package-lock.json`.** `npm version` updates
+  both files, but a commit that stages only `package.json` leaves the lockfile
+  behind — its root and `packages[""]` `version`/`name` must keep matching
+  `package.json` (`@freeasinbird/gh-imgup` / the new version). `npm ci` fails on
+  drift. This bit once: a 0.1.1 bump that staged only `package.json` shipped with
+  the lockfile still at `0.1.0` (and the pre-scope `gh-imgup` name). Use
+  `git add -A` for the bump, or stage the lockfile explicitly.
 - **The first publish was manual** — the trusted publisher can only be configured
   on an already-published package; every release after is the tag flow above.
 - Never attach `*-<os>-<arch>` release assets — it flips `gh extension install`
