@@ -245,6 +245,11 @@ enforced. Violating one is a security regression, not a style nit.
 
 ## Conventions & gotchas
 
+- **Automated PR reviewer: Codex.** ChatGPT Codex reviews every PR
+  automatically on push — no manual trigger (don't post `@codex review`).
+  Its review-author login is `chatgpt-codex-connector[bot]` (REST API form,
+  `type: Bot`); filter review activity by that login. Per-finding response
+  conventions live under Pull requests.
 - **Versioning: `0.x` until the contract is deliberately frozen at `1.0.0`.**
   The first publish is `0.x` (a soft launch while real-world usage accrues). The
   CLI surface and the machine-output contract (invariant 7) are stable by intent
