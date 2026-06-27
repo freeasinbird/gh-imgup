@@ -42,7 +42,14 @@ Environment:
                         (add issues:write for --pr/--issue).
 
 Uploaded images are public on public repos (visible to anyone) and visible to
-all collaborators on private repos. Review every image for secrets before upload.
+all collaborators on private repos, and persist until deleted. Before
+uploading, review every image for:
+  - API keys, tokens, passwords, session cookies, .env contents
+  - internal hostnames, IPs, private URLs, infrastructure details
+  - customer or personal data / PII: names, emails, account numbers
+  - anything from a terminal, editor, devtools, or notification not meant
+    to be shared
+If an image contains any of these, don't upload it.
 `;
 
 const DEFAULT_TAG = "_gh-imgup";

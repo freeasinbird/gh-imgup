@@ -111,6 +111,15 @@ test("--help prints usage to stdout", async () => {
   assert.match(r.stdout, /^gh-imgup <file\.\.\.>/);
 });
 
+test("--help lists the full pre-upload review checklist, not just 'secrets'", async () => {
+  // The CLI is the only review guidance that ships in the npm package (the
+  // skill's SKILL.md is not bundled), so --help must carry the complete surface.
+  const r = await run(["--help"]);
+  assert.match(r.stdout, /API keys, tokens/);
+  assert.match(r.stdout, /internal hostnames, IPs/);
+  assert.match(r.stdout, /PII/);
+});
+
 test("the published bin runs through a .bin symlink (npm/npx)", () => {
   // npm/npx link bin/gh-imgup -> dist/index.js; the entry guard must still fire
   // (process.argv[1] is the symlink, import.meta.url the real path). Running the
