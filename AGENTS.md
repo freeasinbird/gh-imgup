@@ -61,9 +61,17 @@ Use this checklist at the start of each work session:
    current scope covers, or explicitly re-defer — decided invariants
    shouldn't live only as devlog archaeology.
 7. Push, open the PR with the template, and remove sections that do not apply.
-8. Poll required checks until they finish; fix failures on the branch.
-9. Self-review the PR files view, then hand off — leave the PR open for a
-   human to review and merge.
+8. If an automated reviewer is active, start one review-watch for the
+   PR/reviewer before waiting on checks: use any available review-watch
+   skill, tool, or automation that can report back without manual polling,
+   anchor the baseline to the event that should produce the next reviewer pass,
+   and do not ask whether to watch when a permitted non-blocking mechanism
+   exists.
+9. Poll required checks until they finish; fix failures on the branch.
+10. Before handoff, let the review-watch finish: handle any in-scope reviewer
+    activity, or record the bounded timeout / no-review result with the baseline.
+11. Self-review the PR files view, then hand off — leave the PR open for a
+    human to review and merge.
 
 For changes on a **destructive path** (delete/cleanup), a
 **credential-leak surface**, or a **returned-object-trust boundary**, add a
@@ -408,8 +416,46 @@ arc.
     code and scoped to the surface they describe (a compiled CLI and a
     wrapper script differ), stated without marketing or competitor
     put-downs.
-- **Self-review the diff in the PR files view before handing off** — it
-  catches stray hunks and leftovers the editor view didn't.
+- **Self-review the diff in the PR files view before handing off** — seeing
+  the whole change as one artifact catches stray hunks, leftover debug code,
+  scope creep, and accidental files the editor hid. This is a
+  _mechanical-hygiene_ pass: it works because the representation changes, not
+  because same-context review judges design well — it does **not** substitute
+  for substantive critique.
+- **Substantive critique needs fresh, ideally non-self eyes.** Same-context
+  self-review shares the blind spots that produced the code, and models lean
+  toward agreeing with their own output — so it is weak for correctness,
+  design, and missed edge cases. Independence ladder, weakest to strongest:
+  self-in-context < same-model fresh-context subagent < different-vendor bot /
+  human. An automatic bot reviewer or a human is the load-bearing substantive
+  pass; the default finish line already stops at an open PR for one.
+- **Optional, risk-gated: a fresh-context pre-push review.** For non-trivial
+  changes — or any repo without an external bot reviewer — get a _fresh_ set of
+  eyes before pushing, to converge before the external bot. **Where your
+  platform and tools support delegation** (and it is allowed without asking),
+  spawn a fresh-context reviewer: prompt it to _refute_, give it only the diff
+  plus the PR's stated intent (not your reasoning trail), and let it hunt
+  correctness, security, and edge-case failures. **Where they don't** — an
+  agent with no subagent concept, or a session where delegation needs explicit
+  permission — skip it and lean on the external bot / human review, or ask the
+  user first; never emit steps the running agent can't perform. Caveats even
+  when available: a same-model subagent is only _partially_ independent (shared
+  architectural blind spots) and costs tokens — scale to risk, skip trivial or
+  mechanical work.
+- **Record a noticed automated reviewer.** When you observe this repo has an
+  automated PR reviewer — a bot-authored review on a recent PR — and the project
+  hasn't recorded it, add a one-line note to an unmanaged, project-specific
+  section of AGENTS.md with enough identity to match its future reviews: the
+  reviewer's **name**, its **login/account identity** (including the API-specific
+  form when it differs — some hosts suffix bot logins, e.g. a `[bot]` suffix in
+  one API but not another), and how it is **triggered** (automatic on PR events,
+  a manual command, or a CI job). Keep the actual reviewer record outside
+  `agents-md:managed:*` blocks so agent-setup updates do not overwrite it. Later
+  sessions filter review activity by that login and presence alone can't
+  disambiguate two bots, so the identity — not a bare "a reviewer exists" — is
+  the point. Record only a reviewer you actually observed, never its absence: a
+  stale record naming a removed reviewer costs at most a wasted wait, while a
+  recorded "none" would silently skip a reviewer added later.
 - **Responding to automated review.** Bot reviewers (inline P1/P2
   comments) draw a lot of feedback; evaluate each comment on its merits.
   Fix real findings; push back — _with a one-line reason_ — on contrived,
@@ -417,6 +463,23 @@ arc.
   inline with the disposition and the fixing commit SHA ("Fixed in
   `<sha>`" / a reasoned decline), then resolve the thread. Resolving every
   thread is _not_ a hard merge gate — evaluate-on-merits is.
+- **Fix the class, not just the cited line.** When a finding names one
+  location, sweep the file/repo for the same class and fix every instance in
+  the same push — otherwise the bot re-reviews on the next push and flags the
+  siblings one at a time, so sweeping converges in far fewer cycles. **Make the
+  sweep mechanical** — grep/search the file (and repo) for the finding's
+  pattern, don't just eyeball the nearby lines; the same class routinely recurs
+  in sibling sentences or files the citation never named, and a half-sweep only
+  resurfaces it next round. Expect that re-review loop, and expect diminishing returns: automated reviewers can
+  surface ever-smaller nits indefinitely, so converge and hand off rather than
+  chasing every round to zero (value captured is the bar, not threads-at-zero).
+- **Don't under-converge either.** The flip side of not chasing nits: don't
+  declare a PR "addressed" while the reviewer is still raising real issues, and
+  never treat a finding that recurs from your _own_ incomplete fix as
+  convergence — that is a miss to sweep, not a stop. Agents lean toward stopping
+  early and rationalizing it, so bias toward continuing while findings are
+  genuinely worthwhile; the human's merge is the reliable convergence signal,
+  not your own sense that you are done.
 - **Keep the body current as review evolves the PR.** The body becomes the
   merge commit, so when review adds commits or shifts scope, update What, the
   commit map (flag which commits resolve review findings), and Verification
@@ -438,9 +501,26 @@ the project has adopted a self-merge workflow. Once the PR is up:
 - **Self-review the diff** (above) so it's ready for a reviewer.
 - **Watch for new review activity between turns** — the finish line means
   open, green, threads handled, self-reviewed, _and no new review activity
-  outstanding_. Poll open PRs for _both_ new review comments and CI,
-  address findings on the branch, and only then declare done. This is
-  guidance, not mandated automation.
+  outstanding_. Where a reviewer is active, first use any dedicated
+  review-watch skill, tool, or automation your environment exposes that can
+  report back or re-enter without manual polling; otherwise follow this workflow
+  manually. If your platform can watch non-blockingly (a backgrounded poll or
+  scheduled wake-up) and policy permits that mechanism,
+  **starting one active watch per PR/reviewer is the default — don't pause to ask
+  whether to watch**. If a non-blocking mechanism would require permission that
+  is not already granted, use the next permitted path instead of selecting it.
+  Anchor that baseline to the trigger event that should produce the next reviewer pass,
+  not the moment the watch starts: use the PR open/ready event or actual push
+  event for open/push-triggered reviews, and use the request time for a no-push
+  recheck such as marking ready or manually requesting review. Reviewer activity
+  after that event is in-scope and must be handled, not absorbed into the
+  baseline as already-seen; start the watch as soon as the PR is open so the
+  checks wait can't defer it. On a new push, advance or replace that watch's
+  baseline rather than leaving duplicate watchers running. Poll open PRs for
+  _both_ new review comments and CI, address findings on the branch, and only
+  then declare done. Where non-blocking support is absent, use a bounded
+  foreground poll only when it fits the current turn; otherwise hand back with
+  the baseline and don't silently skip the review.
 - **Stop and summarize** — say the PR is open and green, and surface
   anything the reviewer should focus on. Leave merging, branch cleanup, and
   the `main` resync to whoever approves it.
