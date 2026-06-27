@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.2] - 2026-06-26
+
 ### Changed
 
 - `--help` now lists the full pre-upload review checklist (credentials,
@@ -14,6 +16,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   meant to be shared) instead of a one-line "review for secrets". The CLI is
   the only review guidance bundled in the npm package, so the complete surface
   now ships with the tool for agents/users who don't load the skill.
+- Skill (`skills/gh-imgup/SKILL.md`) trigger narrowed to "you already have the
+  image to attach," delineating it from an upstream screenshot/capture workflow
+  so the two don't both fire on a visual change.
 
 ## [0.1.1] - 2026-06-26
 
@@ -74,6 +79,7 @@ First public release on npm as `@freeasinbird/gh-imgup`.
   internal URLs, and PII) a mandatory step — the highest-impact control, since
   the upload is secure but the risk is what gets uploaded.
 
-[Unreleased]: https://github.com/freeasinbird/gh-imgup/compare/v0.1.1...HEAD
+[Unreleased]: https://github.com/freeasinbird/gh-imgup/compare/v0.1.2...HEAD
+[0.1.2]: https://github.com/freeasinbird/gh-imgup/compare/v0.1.1...v0.1.2
 [0.1.1]: https://github.com/freeasinbird/gh-imgup/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/freeasinbird/gh-imgup/releases/tag/v0.1.0
