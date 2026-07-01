@@ -80,7 +80,9 @@ rationale are in [`docs/design.md`](docs/design.md).
   you upload. An asset is public on a public repo and persists until deleted.
   Inspect every image for secrets, internal URLs, and PII first. In agent
   workflows this pre-upload review is a hard step in
-  [`skills/gh-imgup/SKILL.md`](skills/gh-imgup/SKILL.md).
+  [`skills/gh-imgup/SKILL.md`](skills/gh-imgup/SKILL.md). Note that file
+  arguments follow symlinks (deliberately — screenshots are often linked out
+  of a capture directory), so review the resolved target, not just the link.
 - **Clean up deliberately.** `gh-imgup --cleanup` interactively removes
   unreferenced assets (it asks first and refuses without a TTY). To remove a
   specific asset by hand, use `gh release delete-asset <tag> <asset-name>`.
