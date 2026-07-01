@@ -4,3 +4,6 @@
 
 # Extract shared Markdown helpers into markdown.ts (near-verbatim move)
 3c46078f320e7b59fbddcfbb249c080ba2101c8c
+
+# Sweep em dashes from AGENTS.md (punctuation only)
+06f235a09fafb483ff84267a94a2744f96c65d72
