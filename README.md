@@ -293,12 +293,19 @@ them, cut once usage justifies committing to that guarantee.
 
 ### npm
 
-Run it zero-install with `npx -y @freeasinbird/gh-imgup …`, or install it
-globally with `npm install -g @freeasinbird/gh-imgup`. Pin a version in CI, e.g.
-`npx -y @freeasinbird/gh-imgup@0.1.0 …`. When you run it from a different repo's
-checkout (e.g. the gh-imgup source) rather than your project's, pass
-`--repo owner/repo` — otherwise it infers the repo from that checkout's git
-remote.
+Run it zero-install with `npx -y @freeasinbird/gh-imgup …`. For repeat use — or
+any agent whose approval reviewer refuses to run unpinned downloaded code (Codex,
+see below) — install a **pinned** version once and invoke the bare `gh-imgup`:
+
+```bash
+npm i -g @freeasinbird/gh-imgup@0.1.2   # pin the current version; `npm view @freeasinbird/gh-imgup version`
+gh-imgup screenshot.png --repo owner/repo
+```
+
+Pin a version in CI the same way, e.g. `npx -y @freeasinbird/gh-imgup@0.1.0 …`.
+When you run it from a different repo's checkout (e.g. the gh-imgup source)
+rather than your project's, pass `--repo owner/repo` — otherwise it infers the
+repo from that checkout's git remote.
 
 Two things matter for the npx form:
 
@@ -311,29 +318,43 @@ Two things matter for the npx form:
 
 ### Pre-authorize for agents
 
-To let an agent reach for the tool without a per-run approval prompt, standardize
-on the one canonical command — `npx -y @freeasinbird/gh-imgup …` — and allowlist
-that exact string. The `-y` above is what makes it non-interactive; the allowlist
-is what makes it non-prompting.
+To let an agent reach for the tool without a per-run approval prompt, pick one of
+two forms and allowlist that exact string:
+
+- **Zero-install** — `npx -y @freeasinbird/gh-imgup …`. Convenient, but every run
+  re-downloads and executes freshly-resolved package code. Some agents' approval
+  reviewers (Codex) refuse to auto-approve that, `-y` or not — see below.
+- **Pinned pre-installed (recommended for repeat use / strict reviewers)** —
+  install once (`npm i -g @freeasinbird/gh-imgup@X.Y.Z`) and allowlist the bare
+  `gh-imgup`. Auditable once, no per-run download, and it passes stricter
+  reviewers.
+
+The `-y` is what makes the npx form non-interactive; the allowlist is what makes
+either form non-prompting.
 
 **Claude Code.** Auto-running a shell command without a prompt is an allowlist
 decision (a skill can't self-authorize), delivered any of these ways:
 
-- Add an allow rule to `~/.claude/settings.json` (covers every repo you work in):
+- Add an allow rule to `~/.claude/settings.json` (covers every repo you work in).
+  For the recommended pinned form:
 
   ```json
   {
     "permissions": {
-      "allow": ["Bash(npx -y @freeasinbird/gh-imgup *)"]
+      "allow": ["Bash(gh-imgup *)"]
     }
   }
   ```
 
-  Put the same rule in a repo's checked-in `.claude/settings.json` to share it
-  with a team. Rules merge across scopes and never loosen a `deny`.
-- Or, on the first approval prompt, choose **"Yes, and don't ask again for
-  `npx -y @freeasinbird/gh-imgup` commands"** — that writes the same rule for you.
-- Or pass it per session: `--allowedTools 'Bash(npx -y @freeasinbird/gh-imgup *)'`.
+  For the zero-install form instead, use `"Bash(npx -y @freeasinbird/gh-imgup *)"`.
+  Add only the rule for the form you actually run — the npx rule grants the
+  unpinned download-and-run path the pinned form avoids, so don't include it if
+  you chose the pinned form to sidestep exactly that. Put the rule in a repo's
+  checked-in `.claude/settings.json` to share it with a team; rules merge across
+  scopes and never loosen a `deny`.
+- Or, on the first approval prompt, choose **"Yes, and don't ask again…"** — that
+  writes the matching rule for the command you just ran.
+- Or pass it per session: `--allowedTools 'Bash(gh-imgup *)'` (or the npx rule).
 
 The rule's trailing ` *` (space before the wildcard) matches
 `npx -y @freeasinbird/gh-imgup a.png …` but not a version-pinned
@@ -342,10 +363,24 @@ The rule's trailing ` *` (space before the wildcard) matches
 a blanket `Bash(npx *)` would auto-approve any package and is a supply-chain
 risk.
 
-**Codex** doesn't read Claude settings; configure Codex's command approvals,
-sandboxing, and network access separately (auth is a further separate concern).
-The portable fix there is the `-y` flag, which removes the interactive hang so a
-non-interactive run doesn't stall.
+**Codex** doesn't read Claude settings, and its model-based approval reviewer
+refuses to auto-run `npx` — it correctly sees "download and run an *unpinned*
+package with credential access," which `-y` does nothing to change (`-y` only
+suppresses npx's own prompt, not Codex's approval gate). Give it the pinned
+pre-installed form instead:
+
+1. **Pin** — `npm view @freeasinbird/gh-imgup version`.
+2. **Install trusted** — `npm i -g @freeasinbird/gh-imgup@X.Y.Z`.
+3. **Approve a narrow persistent prefix** for the installed command — `["gh-imgup"]`.
+   Choose Codex's persistent "always allow" when prompted.
+
+Don't blanket-allow `npx`, `npm exec --package`, or the unpinned scope: that
+grants whatever code those resolve to *next* time full access to your local files
+and GitHub credentials. A pinned, pre-installed binary is auditable once and
+carries no such open door. On **Codex Cloud**, put the install line in the
+environment setup script and allow the `api.github.com` and `uploads.github.com`
+domains (the environment rebuilds per task, so the setup script is where it
+persists).
 
 ### `gh` CLI extension
 

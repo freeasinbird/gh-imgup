@@ -55,13 +55,19 @@ Invoke it zero-install with `npx` (needs Node 22+). The `-y` is load-bearing:
 without it, npx's first-run `Ok to proceed?` prompt hangs a non-interactive
 agent — always run `npx -y @freeasinbird/gh-imgup …`. Use the **scoped** name;
 a bare `npx gh-imgup` resolves to a different package on the registry, not this
-one. If the CLI is already on PATH — a global
-`npm install -g @freeasinbird/gh-imgup`, or the `gh` extension as `gh imgup` —
-use that instead; the flags are identical.
+one.
+
+For repeat use — or any agent whose approval reviewer refuses to run unpinned
+downloaded code (Codex) — prefer a **pinned** pre-install and run the bare
+`gh-imgup`: `npm i -g @freeasinbird/gh-imgup@X.Y.Z` (or the `gh` extension as
+`gh imgup`); the flags are identical. If the CLI is already on PATH, use it
+instead of npx.
 
 If your agent still prompts for approval before each run, pre-authorize the
-command once — see "Pre-authorize for agents" in the README (for Claude Code, a
-`Bash(npx -y @freeasinbird/gh-imgup *)` allow rule).
+command once — see "Pre-authorize for agents" in the README. Claude Code:
+`Bash(gh-imgup *)` (pinned binary) or `Bash(npx -y @freeasinbird/gh-imgup *)`
+(zero-install). Codex: install pinned, then approve the persistent prefix
+`["gh-imgup"]` (it won't auto-run npx).
 
 The tool resolves the target repo from the `--repo` flag or the git `origin`
 remote, resolves a token from `GITHUB_TOKEN` (or the `gh` CLI), uploads each
