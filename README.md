@@ -11,16 +11,16 @@ A CLI tool that uploads images to GitHub issues and pull requests using the docu
 
 ```bash
 # Upload an image and get Markdown to drop into a PR/issue body
-npx @freeasinbird/gh-imgup screenshot.png --repo owner/repo
+npx -y @freeasinbird/gh-imgup screenshot.png --repo owner/repo
 # → ![screenshot](https://github.com/owner/repo/releases/download/_gh-imgup/screenshot-a1b2c3d4.png)
 
 # Or post it straight to a PR (or issue) as a comment
-npx @freeasinbird/gh-imgup screenshot.png --repo owner/repo --pr 42 -m "Login screen"
+npx -y @freeasinbird/gh-imgup screenshot.png --repo owner/repo --pr 42 -m "Login screen"
 ```
 
 Needs a `GITHUB_TOKEN` with `contents:write` (add `issues:write` for `--pr`/`--issue`), or a logged-in `gh` CLI. Run it inside the target repo and `--repo` is inferred from the git remote.
 
-**Using an agent (Claude Code, Cursor, Codex)?** Also add the [skill](#agent-skill-claude-code-cursor-codex): `npx skills add freeasinbird/gh-imgup` gives the agent the usage guidance and the mandatory pre-upload image review. It does **not** install the CLI — the agent still runs `gh-imgup` from one of the options in [Distribution](#distribution).
+**Using an agent (Claude Code, Cursor, Codex)?** Also add the [skill](#agent-skill-claude-code-cursor-codex): `npx -y skills add freeasinbird/gh-imgup` gives the agent the usage guidance and the mandatory pre-upload image review. It does **not** install the CLI — the agent still runs `gh-imgup` from one of the options in [Distribution](#distribution).
 
 ---
 
@@ -175,7 +175,7 @@ jobs:
           # ... (build PR branch, screenshot again as after.png)
 
       - name: Upload to PR comment
-        run: npx @freeasinbird/gh-imgup before.png after.png --pr ${{ github.event.pull_request.number }} -m "Visual diff"
+        run: npx -y @freeasinbird/gh-imgup before.png after.png --pr ${{ github.event.pull_request.number }} -m "Visual diff"
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 ```
@@ -293,12 +293,59 @@ them, cut once usage justifies committing to that guarantee.
 
 ### npm
 
-Run it zero-install with `npx @freeasinbird/gh-imgup …`, or install it globally
-with `npm install -g @freeasinbird/gh-imgup`. Pin a version in CI, e.g.
-`npx @freeasinbird/gh-imgup@0.1.0 …`. When you run it from a different repo's
+Run it zero-install with `npx -y @freeasinbird/gh-imgup …`, or install it
+globally with `npm install -g @freeasinbird/gh-imgup`. Pin a version in CI, e.g.
+`npx -y @freeasinbird/gh-imgup@0.1.0 …`. When you run it from a different repo's
 checkout (e.g. the gh-imgup source) rather than your project's, pass
 `--repo owner/repo` — otherwise it infers the repo from that checkout's git
 remote.
+
+Two things matter for the npx form:
+
+- **Keep the `-y`.** Without it, npx's first-run `Ok to proceed?` prompt on an
+  uncached package blocks a non-interactive agent or CI job. `-y` (short for
+  `--yes`) skips it.
+- **Keep the `@freeasinbird/` scope.** A bare `npx gh-imgup` resolves to the
+  *unscoped* `gh-imgup` name on the registry — a different package, not this
+  one. Always invoke the scoped name.
+
+### Pre-authorize for agents
+
+To let an agent reach for the tool without a per-run approval prompt, standardize
+on the one canonical command — `npx -y @freeasinbird/gh-imgup …` — and allowlist
+that exact string. The `-y` above is what makes it non-interactive; the allowlist
+is what makes it non-prompting.
+
+**Claude Code.** Auto-running a shell command without a prompt is an allowlist
+decision (a skill can't self-authorize), delivered any of these ways:
+
+- Add an allow rule to `~/.claude/settings.json` (covers every repo you work in):
+
+  ```json
+  {
+    "permissions": {
+      "allow": ["Bash(npx -y @freeasinbird/gh-imgup *)"]
+    }
+  }
+  ```
+
+  Put the same rule in a repo's checked-in `.claude/settings.json` to share it
+  with a team. Rules merge across scopes and never loosen a `deny`.
+- Or, on the first approval prompt, choose **"Yes, and don't ask again for
+  `npx -y @freeasinbird/gh-imgup` commands"** — that writes the same rule for you.
+- Or pass it per session: `--allowedTools 'Bash(npx -y @freeasinbird/gh-imgup *)'`.
+
+The rule's trailing ` *` (space before the wildcard) matches
+`npx -y @freeasinbird/gh-imgup a.png …` but not a version-pinned
+`…@0.1.0` (no space before `@`); if you pin in CI, add
+`Bash(npx -y @freeasinbird/gh-imgup@*)` too. Scope the rule to this package —
+a blanket `Bash(npx *)` would auto-approve any package and is a supply-chain
+risk.
+
+**Codex** doesn't read Claude settings; configure Codex's command approvals,
+sandboxing, and network access separately (auth is a further separate concern).
+The portable fix there is the `-y` flag, which removes the interactive hang so a
+non-interactive run doesn't stall.
 
 ### `gh` CLI extension
 
@@ -332,8 +379,8 @@ The skill definition lives at [`skills/gh-imgup/SKILL.md`](skills/gh-imgup/SKILL
 Install it with the [`skills` CLI](https://github.com/vercel-labs/skills):
 
 ```bash
-npx skills add freeasinbird/gh-imgup   # install
-npx skills update                       # update installed skills to the latest
+npx -y skills add freeasinbird/gh-imgup   # install
+npx -y skills update                       # update installed skills to the latest
 ```
 
 `skills add` reads the repository's default branch, so it works once the skill is

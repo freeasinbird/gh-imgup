@@ -110,7 +110,7 @@ Intended npm scripts (single command each, runnable in CI):
 | Test        | `npm test`         | builds, then `node --test dist/*.test.js` (built-in runner + `node:assert`); tests run against compiled output, not type-stripped source |
 | Lint        | `npm run lint`     | `biome check .`                                    |
 | Format      | `npm run format`   | `biome format --write .`                           |
-| Run (local) | `node dist/index.js <file...> [options]` | or `npx @freeasinbird/gh-imgup …` once published |
+| Run (local) | `node dist/index.js <file...> [options]` | or `npx -y @freeasinbird/gh-imgup …` once published |
 
 - **CLAUDE.md is a pointer** that imports this file (`@AGENTS.md`). Edit
   AGENTS.md, never the pointer.
@@ -280,6 +280,15 @@ enforced. Violating one is a security regression, not a style nit.
 - **Three distribution channels, one codebase.** npm package, `gh`
   extension wrapper (root `gh-imgup` shell script), and `skills/gh-imgup/SKILL.md`
   all point at the same compiled `dist/`. Keep them in sync.
+- **Agent/CI invocation is `npx -y @freeasinbird/gh-imgup …` — canonical, keep
+  it exact.** The `-y` is load-bearing: without it npx's first-run
+  `Ok to proceed?` prompt hangs a non-interactive agent or CI job. The
+  `@freeasinbird/` scope is mandatory — a bare `npx gh-imgup` resolves to a
+  *different*, unscoped registry package. This one string is also what agents
+  allowlist to skip per-run approval (Claude Code:
+  `Bash(npx -y @freeasinbird/gh-imgup *)`; note the space before `*` won't match
+  a pinned `…@0.1.0`), so don't drift the docs/SKILL invocations off it. See the
+  README "Pre-authorize for agents" section.
 - **Never attach a release asset whose name ends in a platform `<os>-<arch>`
   suffix** (`*-darwin-amd64`, `*-linux-amd64`, `*-windows-amd64.exe`, …) — and
   that's _any_ asset, not just a `gh-imgup-<os>-<arch>` binary. The `gh`
