@@ -1,4 +1,5 @@
 import { sanitize } from "./auth.js";
+import { collapseControls } from "./markdown.js";
 
 /**
  * Shared, security-critical helpers for turning a GitHub API response into a
@@ -59,18 +60,6 @@ export function decodesToToken(value: string, token: string): boolean {
     current = next;
   }
   return current.includes(token);
-}
-
-/**
- * Collapse control characters (C0, DEL, and the C1 range — which includes NEL
- * U+0085 and the single-char CSI U+009B) and the Unicode line/paragraph
- * separators to a single space before echoing a response-derived value into an
- * error message. A tampered body or reason phrase could otherwise inject
- * newlines or terminal escape sequences into stderr/CI logs (log forging).
- */
-function collapseControls(text: string): string {
-  // biome-ignore lint/suspicious/noControlCharactersInRegex: matching control chars is the intent — strip them before echoing to logs.
-  return text.replace(/[\u0000-\u001f\u007f-\u009f\u2028\u2029]+/g, " ");
 }
 
 /**
