@@ -7,6 +7,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.3] - 2026-07-01
+
+### Fixed
+
+- Named HTML-entity decoding no longer resolves `Object.prototype` names
+  (`&toString;`, `&constructor;`, and similar) into JavaScript function source.
+  GitHub renders those literally, so the comment token guard and `--cleanup`
+  reference matching now match GitHub's actual rendering. The old behavior was
+  fail-safe (it could only over-keep assets, never leak a token), but the
+  decoding was wrong.
+- The error-body credential scan is bounded: redaction now decodes at most the
+  first 8 KiB of a response body (which strictly contains everything the error
+  message can echo), removing a quadratic worst case on oversized tampered
+  responses. Detection within the echoed region is unchanged.
+- Packing and publishing from a Windows checkout: build hygiene scripts use a
+  Node one-liner instead of `rm -rf`, and `test`/`prepack` now clean `dist/`
+  first so stale compiled files can't run in tests or ship in the tarball.
+
+### Changed
+
+- Internal: the duplicated security helpers were unified behind single
+  implementations (control-character collapsing, the token-in-tag refusal, and
+  a shared response-URL binding core), verified behavior-preserving. SECURITY.md
+  now documents that file arguments follow symlinks deliberately.
+
 ## [0.1.2] - 2026-06-26
 
 ### Changed
@@ -79,7 +104,8 @@ First public release on npm as `@freeasinbird/gh-imgup`.
   internal URLs, and PII) a mandatory step — the highest-impact control, since
   the upload is secure but the risk is what gets uploaded.
 
-[Unreleased]: https://github.com/freeasinbird/gh-imgup/compare/v0.1.2...HEAD
+[Unreleased]: https://github.com/freeasinbird/gh-imgup/compare/v0.1.3...HEAD
+[0.1.3]: https://github.com/freeasinbird/gh-imgup/compare/v0.1.2...v0.1.3
 [0.1.2]: https://github.com/freeasinbird/gh-imgup/compare/v0.1.1...v0.1.2
 [0.1.1]: https://github.com/freeasinbird/gh-imgup/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/freeasinbird/gh-imgup/releases/tag/v0.1.0
