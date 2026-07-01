@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import { closeSync, openSync, readSync, statSync } from "node:fs";
 import { basename } from "node:path";
+import { sanitize } from "./auth.js";
 import { MIME, mimeFor } from "./upload.js";
 
 /** A validated repository identity. */
@@ -42,6 +43,24 @@ export function validateTag(tag: string): string {
     throw new Error(`Tag "${tag}" contains invalid characters.`);
   }
   return tag;
+}
+
+/**
+ * Refuse a --tag that contains the resolved token. The tag goes into request
+ * paths, is published on the releases page, and is embedded in asset URLs — a
+ * token can't be redacted from an identifier, so fail loudly before any
+ * network call. Shared by the upload and --cleanup paths so the refusal can't
+ * drift between them.
+ */
+export function refuseTokenBearingTag(token: string, tag: string): void {
+  if (tag.includes(token)) {
+    throw new Error(
+      sanitize(
+        token,
+        "Refusing to use a --tag that contains the GitHub token.",
+      ),
+    );
+  }
 }
 
 /**

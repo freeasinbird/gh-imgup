@@ -6,6 +6,7 @@ import { API, authedFetch, repoPath, sanitize, UPLOADS } from "./auth.js";
 import { collapseControls, renderInlineMarkdown } from "./markdown.js";
 import type { UploadResult } from "./upload.js";
 import type { ImageFile, Repo } from "./validate.js";
+import { refuseTokenBearingTag } from "./validate.js";
 
 /** Prerelease metadata. Prerelease (not draft) is load-bearing: draft assets 404 by tag. */
 const RELEASE_NAME = "⚠️ Image assets — do not delete";
@@ -120,17 +121,7 @@ export async function ensureRelease(
   deps: ReleaseDeps = {},
 ): Promise<number> {
   const { fetchImpl } = depsOf(deps);
-  // The tag is published on the releases page and embedded in asset URLs; never
-  // create a release whose tag carries the token (a token can't be redacted from
-  // an identifier, so fail loud).
-  if (tag.includes(token)) {
-    throw new Error(
-      sanitize(
-        token,
-        "Refusing to use a --tag that contains the GitHub token.",
-      ),
-    );
-  }
+  refuseTokenBearingTag(token, tag);
   const tagUrl = `${API}/repos/${repoPath(repo)}/releases/tags/${encodeURIComponent(tag)}`;
 
   const got = await authedFetch(token, tagUrl, {}, fetchImpl);

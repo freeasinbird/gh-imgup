@@ -4,6 +4,7 @@ import { API, authedFetch, repoPath, sanitize } from "./auth.js";
 import { renderInlineMarkdown } from "./markdown.js";
 import { deleteAsset, isUsableAssetUrl, releaseId } from "./release.js";
 import type { Repo } from "./validate.js";
+import { refuseTokenBearingTag } from "./validate.js";
 
 /** A release asset that is a candidate for deletion. */
 interface Asset {
@@ -616,17 +617,7 @@ export async function cleanup(
   const { fetchImpl, warn, isTTY, confirm } = depsOf(deps);
   const say = (m: string) => warn(sanitize(token, m));
 
-  // The tag goes into the request path (and is published in asset URLs); a token
-  // can't be redacted from an identifier, so refuse a token-bearing --tag before
-  // any network call, exactly as the upload path does.
-  if (tag.includes(token)) {
-    throw new Error(
-      sanitize(
-        token,
-        "Refusing to use a --tag that contains the GitHub token.",
-      ),
-    );
-  }
+  refuseTokenBearingTag(token, tag);
 
   const relRes = await authedFetch(
     token,
