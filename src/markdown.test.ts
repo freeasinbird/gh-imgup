@@ -27,6 +27,24 @@ test("renderInlineMarkdown leaves non-ASCII and unknown references intact", () =
   assert.equal(renderInlineMarkdown("&#x110000;"), "&#x110000;");
 });
 
+test("renderInlineMarkdown does not resolve Object.prototype names as entities", () => {
+  // On a plain-object entity map these resolve to inherited functions and
+  // stringify ("function toString() { [native code] }"); GitHub renders them
+  // literally, so the decoder must too.
+  for (const name of [
+    "toString",
+    "constructor",
+    "valueOf",
+    "hasOwnProperty",
+    "isPrototypeOf",
+    "propertyIsEnumerable",
+    "toLocaleString",
+    "__proto__",
+  ]) {
+    assert.equal(renderInlineMarkdown(`&${name};`), `&${name};`);
+  }
+});
+
 test("renderInlineMarkdown drops backslash escapes before ASCII punctuation only", () => {
   assert.equal(renderInlineMarkdown("\\_"), "_");
   assert.equal(renderInlineMarkdown("\\[\\]"), "[]");

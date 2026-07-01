@@ -149,6 +149,54 @@ test("argument errors fail with empty stdout and exit 1", async () => {
   }
 });
 
+test("parseArgs edge forms: --flag=value, --, lone -, -m=", async () => {
+  // Inline --flag=value works end to end.
+  const inline = await run(
+    [img("i.png"), "--repo=o/r"],
+    baseDeps(ghApi().impl),
+  );
+  assert.equal(inline.exitCode, 0);
+  assert.match(inline.stdout, /github\.com\/o\/r\/releases/);
+
+  // A boolean flag refuses an inline value.
+  const noVal = await run([img("i.png"), "--json=x"], baseDeps(ghApi().impl));
+  assert.equal(noVal.exitCode, 1);
+  assert.equal(noVal.stdout, "");
+  assert.match(noVal.stderr, /--json does not take a value/);
+
+  // -- ends option parsing: what follows is a file, even when dash-prefixed.
+  const dashed = await run(
+    ["--repo", "o/r", "--", "--json"],
+    baseDeps(ghApi().impl),
+  );
+  assert.equal(dashed.exitCode, 1);
+  assert.match(dashed.stderr, /File not found: --json/);
+
+  // A lone - is a positional (there is no stdin mode), not an option error.
+  const stdin = await run(["-", "--repo", "o/r"], baseDeps(ghApi().impl));
+  assert.equal(stdin.exitCode, 1);
+  assert.match(stdin.stderr, /File not found: -/);
+
+  // The inline = form is long-options only; -m=x is not recognized.
+  const shortEq = await run(
+    [img("i.png"), "-m=x", "--repo", "o/r"],
+    baseDeps(ghApi().impl),
+  );
+  assert.equal(shortEq.exitCode, 1);
+  assert.match(shortEq.stderr, /Unknown option: -m=x/);
+});
+
+test("--max-size is wired through run(): an oversize file is refused", async () => {
+  const big = img("big.png", "x".repeat(2 * 1024 * 1024));
+  const r = await run(
+    [big, "--repo", "o/r", "--max-size", "1"],
+    baseDeps(ghApi().impl),
+  );
+  assert.equal(r.exitCode, 1);
+  assert.equal(r.stdout, "");
+  assert.match(r.stderr, /is 2\.0MB, exceeds limit 1\.0MB/);
+});
+
 test("happy path: uploads a file and prints markdown to stdout", async () => {
   const { impl, calls } = ghApi();
   const r = await run([img("shot.png"), "--repo", "o/r"], baseDeps(impl));

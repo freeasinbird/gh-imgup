@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import { closeSync, openSync, readSync, statSync } from "node:fs";
 import { basename } from "node:path";
+import { sanitize } from "./auth.js";
 import { MIME, mimeFor } from "./upload.js";
 
 /** A validated repository identity. */
@@ -42,6 +43,82 @@ export function validateTag(tag: string): string {
     throw new Error(`Tag "${tag}" contains invalid characters.`);
   }
   return tag;
+}
+
+/**
+ * Refuse a --tag that contains the resolved token. The tag goes into request
+ * paths, is published on the releases page, and is embedded in asset URLs — a
+ * token can't be redacted from an identifier, so fail loudly before any
+ * network call. Shared by the upload and --cleanup paths so the refusal can't
+ * drift between them.
+ */
+export function refuseTokenBearingTag(token: string, tag: string): void {
+  if (tag.includes(token)) {
+    throw new Error(
+      sanitize(
+        token,
+        "Refusing to use a --tag that contains the GitHub token.",
+      ),
+    );
+  }
+}
+
+/**
+ * Shared core of the response-URL re-binding validators (invariant 9):
+ * `isUsableAssetUrl` (release.ts) and `usableCommentUrl` (github.ts). Applies
+ * every check the two share before trusting a response-derived URL:
+ *
+ * - printable ASCII only — a real github.com URL percent-encodes everything
+ *   else, so this rejects spaces, C0/C1 control chars, DEL, and Unicode
+ *   separator/format chars (NEL, U+2028/9, BOM, RLO) that would otherwise
+ *   reach an output surface once echoed;
+ * - https on github.com with no credentials, port, or query — any of those
+ *   would carry attacker-chosen junk (e.g. `user:SECRET@`, `?jwt=…`);
+ * - already canonical (`url.href === value`) — anything `new URL()` had to
+ *   normalize (raw `<">` in the path, `/../` traversal, a mixed-case host)
+ *   is not a clean URL to echo or act on;
+ * - path bound to the target owner/repo (case-insensitive, as GitHub
+ *   canonicalizes owner/repo casing).
+ *
+ * Returns the parsed URL and path segments for the caller's endpoint-specific
+ * binding (asset: releases/download/tag/name and no fragment; comment:
+ * issues|pull/number plus the #issuecomment fragment), or null on any failure
+ * — callers treat null as "drop / don't trust".
+ */
+export function boundGithubUrl(
+  value: unknown,
+  repo: Repo,
+): { url: URL; segments: string[] } | null {
+  if (typeof value !== "string" || value === "") return null;
+  for (const ch of value) {
+    const code = ch.charCodeAt(0);
+    if (code < 0x21 || code > 0x7e) return null;
+  }
+  let url: URL;
+  try {
+    url = new URL(value);
+  } catch {
+    return null;
+  }
+  if (
+    url.protocol !== "https:" ||
+    url.hostname !== "github.com" ||
+    url.username !== "" ||
+    url.password !== "" ||
+    url.port !== "" ||
+    url.search !== ""
+  ) {
+    return null;
+  }
+  if (url.href !== value) return null;
+  const segments = url.pathname.split("/");
+  if (
+    segments[1]?.toLowerCase() !== repo.owner.toLowerCase() ||
+    segments[2]?.toLowerCase() !== repo.name.toLowerCase()
+  ) {
+    return null;
+  }
+  return { url, segments };
 }
 
 /**

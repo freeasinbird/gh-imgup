@@ -4,6 +4,7 @@ import {
   apiError,
   decodesToToken,
   MAX_DETAIL,
+  MAX_SCAN,
   redactBody,
   redactField,
 } from "./apierr.js";
@@ -44,6 +45,29 @@ test("redactBody redacts a token-bearing body and truncates to MAX_DETAIL", () =
   assert.ok(out.length <= MAX_DETAIL);
   assert.doesNotMatch(out, /SSSSS/);
   assert.match(out, /\[REDACTED\]/);
+});
+
+test("redactBody bounds the decode scan without weakening the echoed prefix", () => {
+  // ~100KB of maximally nested percent escapes: each fixed-point pass peels
+  // one layer, so an unbounded scan is O(n²) — this input made the old
+  // full-body scan take minutes. It must complete promptly, and an encoded
+  // token placed within the echoed prefix must still redact the whole body.
+  const nested = `%${"25".repeat(50_000)}5A`;
+  assert.equal(redactBody(TOKEN, `oops ghp%5FTOK ${nested}`), "[REDACTED]");
+  const clean = redactBody(TOKEN, nested);
+  assert.ok(clean.length <= MAX_DETAIL);
+  assert.doesNotMatch(clean, /TOK/);
+
+  // Collapse runs before the window/echo slice, so a control-char run can't
+  // pull far-away body content (here, an encoded token) past the scan.
+  const controls = String.fromCharCode(1).repeat(50_000);
+  assert.equal(redactBody(TOKEN, `${controls}ghp%5FTOK`), "[REDACTED]");
+
+  // Content beyond MAX_SCAN is not scanned — and can never be echoed either:
+  // the echo is the first MAX_DETAIL chars of the same windowed text.
+  const far = redactBody(TOKEN, `${"x".repeat(MAX_SCAN)}ghp%5FTOK`);
+  assert.ok(far.length <= MAX_DETAIL);
+  assert.doesNotMatch(far, /TOK/);
 });
 
 test("redactBody and redactField collapse control chars (no log forging)", () => {

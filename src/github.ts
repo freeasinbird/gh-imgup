@@ -2,6 +2,7 @@ import { apiError, decodesToToken } from "./apierr.js";
 import { API, authedFetch, repoPath, sanitize } from "./auth.js";
 import { renderInlineMarkdown } from "./markdown.js";
 import type { Repo } from "./validate.js";
+import { boundGithubUrl } from "./validate.js";
 
 /** Injectable I/O for the comment function (real defaults in production). */
 export interface GithubDeps {
@@ -46,46 +47,19 @@ function usableCommentUrl(
   number: number,
   token: string,
 ): value is string {
-  if (typeof value !== "string" || value === "") return false;
   // Never echo a URL carrying the token in any encoded form (invariant 3).
-  if (decodesToToken(value, token)) return false;
-  // Printable ASCII only: a real comment URL is percent-encoded, so this rejects
-  // spaces, control chars, and terminal escapes a tampered response could embed
-  // (e.g. in the #fragment) that would forge stderr/CI log lines once echoed.
-  for (const ch of value) {
-    const code = ch.charCodeAt(0);
-    if (code < 0x21 || code > 0x7e) return false;
-  }
-  let url: URL;
-  try {
-    url = new URL(value);
-  } catch {
-    return false;
-  }
+  if (typeof value !== "string" || decodesToToken(value, token)) return false;
+  // Shared re-binding core (printable ASCII, https github.com, no
+  // creds/port/query, canonical, owner/repo bound) — see boundGithubUrl.
+  const bound = boundGithubUrl(value, repo);
+  if (!bound) return false;
+  // Bind to the upload target: the issues/pull collection and the exact
+  // number — then require the created-comment fragment.
+  const { url, segments } = bound;
   if (
-    url.protocol !== "https:" ||
-    url.hostname !== "github.com" ||
-    url.username !== "" ||
-    url.password !== "" ||
-    url.port !== "" ||
-    url.search !== ""
-  ) {
-    return false;
-  }
-  // Require the value to be already canonical (a real github.com URL is): reject
-  // anything new URL() had to normalize — path traversal (`/../`), a mixed-case
-  // host — so we never report a misleading or non-canonical comment link.
-  if (url.href !== value) return false;
-  // Bind to the upload target: owner/repo (case-insensitive, as GitHub
-  // canonicalizes casing), the issues/pull collection, and the exact number —
-  // then require the created-comment fragment.
-  const seg = url.pathname.split("/");
-  if (
-    seg.length !== 5 ||
-    seg[1]?.toLowerCase() !== repo.owner.toLowerCase() ||
-    seg[2]?.toLowerCase() !== repo.name.toLowerCase() ||
-    (seg[3] !== "issues" && seg[3] !== "pull") ||
-    seg[4] !== String(number)
+    segments.length !== 5 ||
+    (segments[3] !== "issues" && segments[3] !== "pull") ||
+    segments[4] !== String(number)
   ) {
     return false;
   }

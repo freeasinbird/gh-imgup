@@ -1,4 +1,5 @@
 import { sanitize } from "./auth.js";
+import { collapseControls } from "./markdown.js";
 
 /**
  * Shared, security-critical helpers for turning a GitHub API response into a
@@ -11,6 +12,19 @@ import { sanitize } from "./auth.js";
 
 /** Max characters of an API error body echoed into a message (keeps errors readable). */
 export const MAX_DETAIL = 500;
+
+/**
+ * Max characters of a response body scanned for an encoded token. The
+ * fixed-point decode in {@link decodesToToken} is O(passes × length) — worst
+ * case O(n²) on a body of nested escapes — so an unbounded scan would let a
+ * huge tampered body burn quadratic CPU. 16× MAX_DETAIL: only the first
+ * MAX_DETAIL characters are ever echoed, and the scan window contains them
+ * with enough margin that a token in any plausible encoded form (percent ~3×
+ * per layer, \u 6×) reaching the echo is still detected; an encoding so deep
+ * it straddles the window boundary can place only an undecodable fragment
+ * inside the echoed prefix.
+ */
+export const MAX_SCAN = 8 * 1024;
 
 /**
  * Whether `value` contains `token` at any escaping depth. `sanitize()` only
@@ -49,18 +63,6 @@ export function decodesToToken(value: string, token: string): boolean {
 }
 
 /**
- * Collapse control characters (C0, DEL, and the C1 range — which includes NEL
- * U+0085 and the single-char CSI U+009B) and the Unicode line/paragraph
- * separators to a single space before echoing a response-derived value into an
- * error message. A tampered body or reason phrase could otherwise inject
- * newlines or terminal escape sequences into stderr/CI logs (log forging).
- */
-function collapseControls(text: string): string {
-  // biome-ignore lint/suspicious/noControlCharactersInRegex: matching control chars is the intent — strip them before echoing to logs.
-  return text.replace(/[\u0000-\u001f\u007f-\u009f\u2028\u2029]+/g, " ");
-}
-
-/**
  * Render a response-derived value for an error message. `sanitize()` strips only
  * the literal token, so a tampered field carrying an encoded token would
  * otherwise leak it to stderr/CI logs. If the value holds the token at ANY
@@ -82,9 +84,15 @@ export function redactField(value: unknown, token: string): string {
  */
 export function redactBody(token: string, body: string): string {
   const literal = sanitize(token, body);
-  const safe = decodesToToken(literal, token)
-    ? "[REDACTED]"
-    : collapseControls(literal);
+  // Collapse before windowing: collapse is linear and only inserts spaces
+  // (never joins or removes token/escape characters, which are all printable),
+  // so slicing the COLLAPSED text pins the echoed prefix — a control-char run
+  // can no longer pull far-away body content into the first MAX_DETAIL chars.
+  // The decode-aware scan then covers the whole MAX_SCAN window, which
+  // strictly contains everything echoable, so the redaction decision still
+  // can't be split across the MAX_DETAIL cutoff.
+  const windowed = collapseControls(literal).slice(0, MAX_SCAN);
+  const safe = decodesToToken(windowed, token) ? "[REDACTED]" : windowed;
   return safe.slice(0, MAX_DETAIL);
 }
 
