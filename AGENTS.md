@@ -248,8 +248,14 @@ enforced. Violating one is a security regression, not a style nit.
 - **Automated PR reviewer: Codex.** ChatGPT Codex reviews every PR
   automatically on push; no manual trigger (don't post `@codex review`).
   Its review-author login is `chatgpt-codex-connector[bot]` (REST API form,
-  `type: Bot`); filter review activity by that login. Per-finding response
-  conventions live under Pull requests.
+  `type: Bot`); filter review activity by that login. **A no-findings review is
+  a 👍 (`+1`) reaction on the PR, not a review or comment**, so a watch keying
+  only on reviews/comments misreads a clean pass as "no review": also poll
+  reactions (`gh api repos/OWNER/REPO/issues/<pr>/reactions`). Codex only starts
+  tracking a PR on an open / ready / `@codex review` event, so a PR opened on a
+  non-`main` stacked base can be skipped until you fire one (toggling draft to
+  ready via `gh pr ready --undo` then `gh pr ready` is the convention-respecting
+  trigger). Per-finding response conventions live under Pull requests.
 - **Versioning: `0.x` until the contract is deliberately frozen at `1.0.0`.**
   The first publish is `0.x` (a soft launch while real-world usage accrues). The
   CLI surface and the machine-output contract (invariant 7) are stable by intent
