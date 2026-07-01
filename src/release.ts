@@ -6,7 +6,7 @@ import { API, authedFetch, repoPath, sanitize, UPLOADS } from "./auth.js";
 import { collapseControls, renderInlineMarkdown } from "./markdown.js";
 import type { UploadResult } from "./upload.js";
 import type { ImageFile, Repo } from "./validate.js";
-import { refuseTokenBearingTag } from "./validate.js";
+import { boundGithubUrl, refuseTokenBearingTag } from "./validate.js";
 
 /** Prerelease metadata. Prerelease (not draft) is load-bearing: draft assets 404 by tag. */
 const RELEASE_NAME = "⚠️ Image assets — do not delete";
@@ -225,50 +225,22 @@ export function isUsableAssetUrl(
   repo: Repo,
   tag: string,
 ): value is string {
-  if (typeof value !== "string" || value === "") {
+  // Shared re-binding core (printable ASCII, https github.com, no
+  // creds/port/query, canonical, owner/repo bound) — see boundGithubUrl.
+  const bound = boundGithubUrl(value, repo);
+  if (!bound) {
     return false;
   }
-  for (const ch of value) {
-    // Printable ASCII only: a real asset URL percent-encodes everything else, so
-    // this rejects spaces, C0/C1 control chars, DEL, and Unicode separators /
-    // format chars (NEL, U+2028/9, BOM, RLO) that would otherwise reach stdout.
-    const code = ch.charCodeAt(0);
-    if (code < 0x21 || code > 0x7e) {
-      return false;
-    }
-  }
-  let url: URL;
-  try {
-    url = new URL(value);
-  } catch {
-    return false;
-  }
-  // No credentials, port, query, or fragment — a real asset URL has none, and
-  // any of them would carry attacker-chosen junk (e.g. user:SECRET@, ?jwt=…).
-  if (
-    url.protocol !== "https:" ||
-    url.hostname !== "github.com" ||
-    url.username !== "" ||
-    url.password !== "" ||
-    url.port !== "" ||
-    url.search !== "" ||
-    url.hash !== ""
-  ) {
-    return false;
-  }
-  // Real GitHub asset URLs are already canonical/percent-encoded, so anything
-  // new URL() had to normalize (e.g. raw <,>," in the path) means the response
-  // value isn't a clean asset URL — reject it rather than print the raw form.
-  if (url.href !== value) {
+  // A real asset URL has no fragment either — a #… would carry response-chosen
+  // junk past the canonical check.
+  if (bound.url.hash !== "") {
     return false;
   }
   // Exact path /{owner}/{repo}/releases/download/{tag}/{asset}, bound to the
   // upload target — not the marker anywhere, another repo, or another tag.
-  const segments = url.pathname.split("/");
+  const { segments } = bound;
   return (
     segments.length === 7 &&
-    segments[1]?.toLowerCase() === repo.owner.toLowerCase() &&
-    segments[2]?.toLowerCase() === repo.name.toLowerCase() &&
     segments[3] === "releases" &&
     segments[4] === "download" &&
     segments[5] === tag &&
