@@ -49,11 +49,11 @@ That's a real gap for automated workflows. When an agent or CI job implements a 
 While you can run `gh-imgup` zero-install with `npx -y @freeasinbird/gh-imgup …`, for repeated use (or for any agent whose approval reviewer refuses to run unpinned downloaded code, such as Codex; see [Pre-authorize for agents](#pre-authorize-for-agents)) install a **pinned** version once and invoke the bare `gh-imgup`:
 
 ```bash
-npm i -g @freeasinbird/gh-imgup@0.1.2   # pin the current version; `npm view @freeasinbird/gh-imgup version`
+npm i -g @freeasinbird/gh-imgup@0.1.3   # pin the current version; `npm view @freeasinbird/gh-imgup version`
 gh-imgup screenshot.png --repo owner/repo
 ```
 
-Pin a version in CI the same way, e.g. `npx -y @freeasinbird/gh-imgup@0.1.0 …`. When you run it from a different repo's checkout (e.g. the gh-imgup source) rather than your project's, pass `--repo owner/repo`; otherwise it infers the repo from that checkout's git remote.
+Pin a version in CI the same way, e.g. `npx -y @freeasinbird/gh-imgup@0.1.3 …`. When you run it from a different repo's checkout (e.g. the gh-imgup source) rather than your project's, pass `--repo owner/repo`; otherwise it infers the repo from that checkout's git remote.
 
 For the npx form, keep the `-y` (it skips npx's first-run prompt, which would otherwise hang a non-interactive agent or CI job) and the `@freeasinbird/` scope (a bare `npx gh-imgup` is a different, unscoped package).
 

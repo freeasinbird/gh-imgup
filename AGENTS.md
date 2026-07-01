@@ -150,6 +150,19 @@ under Conventions & gotchas).
   (skips when that version is already on the registry), so re-tagging is safe;
   the first `v0.1.0` tag (the package was published manually first) was a green
   no-op for this reason.
+- **The version-bump PR also updates the README pinned examples.** The two
+  runnable, fully-qualified pins (`npm i -g @freeasinbird/gh-imgup@X.Y.Z` and
+  the CI `npx -y @freeasinbird/gh-imgup@X.Y.Z` example) track the release;
+  find them with `grep -n 'gh-imgup@0' README.md`. The ellipsized `…@0.1.0`
+  allowlist illustrations (here and in the README pre-authorize section) are
+  deliberately version-agnostic and don't track releases.
+- **After pushing the tag, create the GitHub release for it:**
+  `gh release create vX.Y.Z --verify-tag --title vX.Y.Z --notes "<short prose
+  summary of the CHANGELOG entry>"`. npm publishing is tag-triggered and
+  doesn't need it, but the releases page is user-facing: this step was missed
+  for v0.1.2 and v0.1.3 (backfilled 2026-07-01), leaving "Latest" pointing at
+  v0.1.1. Notes-only, normal (non-prerelease) releases; never attach assets
+  (see the `<os>-<arch>` gotcha under Conventions).
 - **A version bump must also commit `package-lock.json`.** `npm version` updates
   both files, but a commit that stages only `package.json` leaves the lockfile
   behind: its root and `packages[""]` `version`/`name` must keep matching
