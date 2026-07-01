@@ -280,15 +280,20 @@ enforced. Violating one is a security regression, not a style nit.
 - **Three distribution channels, one codebase.** npm package, `gh`
   extension wrapper (root `gh-imgup` shell script), and `skills/gh-imgup/SKILL.md`
   all point at the same compiled `dist/`. Keep them in sync.
-- **Agent/CI invocation is `npx -y @freeasinbird/gh-imgup …` — canonical, keep
-  it exact.** The `-y` is load-bearing: without it npx's first-run
-  `Ok to proceed?` prompt hangs a non-interactive agent or CI job. The
-  `@freeasinbird/` scope is mandatory — a bare `npx gh-imgup` resolves to a
-  *different*, unscoped registry package. This one string is also what agents
-  allowlist to skip per-run approval (Claude Code:
-  `Bash(npx -y @freeasinbird/gh-imgup *)`; note the space before `*` won't match
-  a pinned `…@0.1.0`), so don't drift the docs/SKILL invocations off it. See the
-  README "Pre-authorize for agents" section.
+- **Two supported agent/CI invocations — keep both exact.** Zero-install
+  `npx -y @freeasinbird/gh-imgup …` is canonical: `-y` is load-bearing (without
+  it npx's first-run `Ok to proceed?` prompt hangs a non-interactive agent/CI
+  job) and the `@freeasinbird/` scope is mandatory (a bare `npx gh-imgup` is a
+  *different*, unscoped registry package). The **pinned pre-installed** bare
+  `gh-imgup` is the recommended low-friction path for repeat use and for
+  approval reviewers that refuse unpinned npx (Codex) — `-y` doesn't help there,
+  it only suppresses npx's own prompt, not a model-based approval gate. Each form
+  has its allowlist string: Claude Code `Bash(gh-imgup *)` (pinned) /
+  `Bash(npx -y @freeasinbird/gh-imgup *)` (npx; the space before `*` won't match
+  a pinned `…@0.1.0`); Codex persistent prefix `["gh-imgup"]` (Codex won't
+  auto-run npx at all). Don't drift the docs/SKILL invocations or these allow
+  strings off each other across README/SKILL/AGENTS. See the README
+  "Pre-authorize for agents" section.
 - **Never attach a release asset whose name ends in a platform `<os>-<arch>`
   suffix** (`*-darwin-amd64`, `*-linux-amd64`, `*-windows-amd64.exe`, …) — and
   that's _any_ asset, not just a `gh-imgup-<os>-<arch>` binary. The `gh`
