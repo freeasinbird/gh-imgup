@@ -1,0 +1,13 @@
+# Zero runtime dependencies is invariant 2, so npm updates here are
+# devDependencies only (typescript, @types/node, biome) plus the pinned
+# GitHub Actions. Weekly is plenty at that surface.
+version: 2
+updates:
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly

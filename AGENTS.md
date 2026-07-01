@@ -90,7 +90,7 @@ that, or the project has adopted a self-merge workflow.
 
 ## Build, test, run
 
-- **Runtime:** Node.js 22+ (global `fetch`, `node:test`). CI runs Node 22;
+- **Runtime:** Node.js 22+ (global `fetch`, `node:test`). CI runs Node 22 and 24;
   the build/test path targets compiled output, so it also runs on Node 20
   for local development.
 - **Package manager:** npm. Published as an npm package; also distributed
