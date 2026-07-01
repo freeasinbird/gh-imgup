@@ -115,11 +115,19 @@ Intended npm scripts (single command each, runnable in CI):
 - **CLAUDE.md is a pointer** that imports this file (`@AGENTS.md`). Edit
   AGENTS.md, never the pointer.
 - **CI** (`.github/workflows/ci.yml`) runs `npm run lint`, `npm run typecheck`,
-  and `npm test` (which builds) on every PR and push to `main`. The workflow
-  conventions below assume these checks exist and gate merges; keep them
-  green and don't remove the gate. Branch protection on `main` enforces this: a
-  PR with the `check` job green is required to merge, admin-enforced (no direct
-  pushes to `main`, even for the owner).
+  and `npm test` (which builds) on a Node 22/24 matrix on every PR and push to
+  `main`. The workflow conventions below assume these checks exist and gate
+  merges; keep them green and don't remove the gate. Branch protection on
+  `main` enforces this: a PR with the `check` job green is required to merge,
+  admin-enforced (no direct pushes to `main`, even for the owner).
+- **The `check` job is a fail-closed fan-in gate; keep its name and shape.**
+  Branch protection requires the context named `check`, so the matrix reports
+  through a fan-in job that keeps that exact name. Its `if: always()` plus the
+  explicit `needs.test.result == "success"` test are load-bearing: a plain
+  `needs:` job is skipped when a matrix leg fails, and GitHub treats a skipped
+  required check as satisfied, so simplifying the condition makes the gate
+  fail open. Renaming the job breaks merging entirely (the required context
+  never reports).
 
 ## Releases
 
@@ -184,9 +192,13 @@ enforced. Violating one is a security regression, not a style nit.
    it decodes to the token literally or through `%XX` / JS-JSON `\uXXXX`
    escapes, and control characters (C0/DEL/C1, line/paragraph separators)
    are collapsed so a tampered response can't forge log lines. These defenses
-   live in `apierr.ts` (`sanitize` / `decodesToToken` / `redactField` /
-   `redactBody`); any new path that prints an API response or a
-   response-derived value must route through them. Separately, the PUBLIC
+   live in `apierr.ts` (`decodesToToken` / `redactField` / `redactBody`, with
+   `sanitize` in `auth.ts` and the shared `collapseControls` in `markdown.ts`);
+   any new path that prints an API response or a response-derived value must
+   route through them. `redactBody`'s decode scan is bounded (`MAX_SCAN`), and
+   the containment is load-bearing: the echoed prefix (`MAX_DETAIL`) must stay
+   strictly inside the scanned window, so never raise `MAX_DETAIL` to or past
+   `MAX_SCAN` (that silently breaks the no-leak argument). Separately, the PUBLIC
    comment surface refuses to post a body whose token appears in a *rendered*
    form, HTML entities (named/numeric/zero-padded) or backslash escapes,
    via `github.ts` `renderInlineMarkdown` (the normalization cleanup matching
@@ -241,7 +253,11 @@ enforced. Violating one is a security regression, not a style nit.
    against the target: host + owner/repo + path shape + id (e.g.
    `isUsableAssetUrl`, `usableCommentUrl`), not just the host. A malformed,
    off-repo, or tampered URL is rejected (dropped, or the run aborts on a
-   destructive path), never reported or deleted-by.
+   destructive path), never reported or deleted-by. The shared checks
+   (printable ASCII, https on github.com, no creds/port/query, canonical
+   `href === value`, owner/repo binding) live in `boundGithubUrl`
+   (`validate.ts`); any new response-URL validator must route through it and
+   add only its endpoint-specific binding on top.
 
 ## Conventions & gotchas
 
@@ -351,6 +367,12 @@ enforced. Violating one is a security regression, not a style nit.
   `\x00-\x7f` range can have its escapes decoded into literal bytes (or the
   range mangled) by the editor/JSON layer. Write such regexes via a node
   script (or use `codePointAt` scans instead of escape ranges) and byte-audit.
+- **npm scripts must be cross-platform.** npm runs scripts under `cmd.exe` on
+  Windows, where Unix tools (`rm`, `cp`, `test`) aren't available; `test` and
+  `prepack` depend on these scripts, so a Unix-only command breaks Windows
+  contributors and pack/publish runs before the build even starts. Use Node
+  one-liners instead (the `clean` script's
+  `node -e "require('node:fs').rmSync(...)"` is the pattern).
 - **I/O is tested via dependency injection.** Modules take their side effects
   (env, the gh/git subprocess, `fetch`, `warn`, `isTTY`, `confirm`) as
   injectable params with production defaults; tests script a fake transport
