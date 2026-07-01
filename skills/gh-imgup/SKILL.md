@@ -45,12 +45,20 @@ When in doubt, ask the user before uploading.
 ## Usage
 
 ```bash
-npx @freeasinbird/gh-imgup <file...> [options]
+npx -y @freeasinbird/gh-imgup <file...> [options]
 ```
 
-Invoke it zero-install with `npx` (needs Node 22+). If the CLI is already on
-PATH — a global `npm install -g @freeasinbird/gh-imgup`, or the `gh` extension as
-`gh imgup` — use that instead; the flags are identical.
+Invoke it zero-install with `npx` (needs Node 22+). The `-y` is load-bearing:
+without it, npx's first-run `Ok to proceed?` prompt hangs a non-interactive
+agent — always run `npx -y @freeasinbird/gh-imgup …`. Use the **scoped** name;
+a bare `npx gh-imgup` resolves to a different package on the registry, not this
+one. If the CLI is already on PATH — a global
+`npm install -g @freeasinbird/gh-imgup`, or the `gh` extension as `gh imgup` —
+use that instead; the flags are identical.
+
+If your agent still prompts for approval before each run, pre-authorize the
+command once — see "Pre-authorize for agents" in the README (for Claude Code, a
+`Bash(npx -y @freeasinbird/gh-imgup *)` allow rule).
 
 The tool resolves the target repo from the `--repo` flag or the git `origin`
 remote, resolves a token from `GITHUB_TOKEN` (or the `gh` CLI), uploads each
@@ -66,15 +74,15 @@ Common invocations:
 
 ```bash
 # Preferred agent flow: upload and use stdout in the PR/issue body
-npx @freeasinbird/gh-imgup before.png after.png --repo owner/repo
+npx -y @freeasinbird/gh-imgup before.png after.png --repo owner/repo
 
 # Follow-up comment on an existing PR/issue
-npx @freeasinbird/gh-imgup before.png after.png --pr 42 -m "Before / after: nav redesign"
-npx @freeasinbird/gh-imgup repro.png --issue 17
+npx -y @freeasinbird/gh-imgup before.png after.png --pr 42 -m "Before / after: nav redesign"
+npx -y @freeasinbird/gh-imgup repro.png --issue 17
 
 # Machine-friendly forms
-npx @freeasinbird/gh-imgup chart.png --raw
-npx @freeasinbird/gh-imgup chart.png --json
+npx -y @freeasinbird/gh-imgup chart.png --raw
+npx -y @freeasinbird/gh-imgup chart.png --json
 ```
 
 ### Options
@@ -99,7 +107,7 @@ Allowed image types: `.png`, `.jpg`, `.jpeg`, `.gif`, `.webp`. SVG is rejected
 progress, warnings, and errors go to `stderr`. Exit code is `0` only when every
 upload succeeded. For PR/issue body composition, capture the default Markdown
 stdout and insert it into the body. For scripting, capture the link with
-`URL=$(npx @freeasinbird/gh-imgup shot.png --raw)` and rely on the exit code; read `stderr` for
+`URL=$(npx -y @freeasinbird/gh-imgup shot.png --raw)` and rely on the exit code; read `stderr` for
 what happened.
 
 ## Auth
