@@ -18,10 +18,11 @@
   },
   "scripts": {
     "build": "tsc",
-    "prepack": "npm run build",
+    "clean": "node -e \"require('node:fs').rmSync('dist', { recursive: true, force: true })\"",
+    "prepack": "npm run clean && npm run build",
     "prepublishOnly": "npm run lint && npm run typecheck && npm test",
     "typecheck": "tsc --noEmit",
-    "test": "npm run build && node --test dist/*.test.js",
+    "test": "npm run clean && npm run build && node --test dist/*.test.js",
     "lint": "biome check .",
     "format": "biome format --write ."
   },
