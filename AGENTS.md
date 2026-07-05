@@ -14,24 +14,22 @@ agents.
 
 ## Devlog (session bookends)
 
-`devlog/` holds the reasoning trail, one short entry per working
-session (see `devlog/README.md` for the protocol).
+`devlog/` holds the reasoning trail: one short entry per working
+session. `devlog/README.md` is the protocol: entry naming, density
+target, structure, and when an entry may be revised.
 
 - **Before starting:** read the most recent one or two entries
-  (`find devlog -maxdepth 1 -type f -name '*.md' ! -name README.md | sort | tail -2`),
+  (`find devlog -maxdepth 1 -type f -name '*.md' ! -name README.md | sort | tail -2`);
   they carry decisions and deliberate deferrals that aren't in the spec.
   Don't re-litigate or "fix" what an entry marks as decided/deferred without
-  the user asking. Also `grep` the devlog for the open `To promote` /
+  the user asking. Also grep the devlog for the open `## To promote` /
   deferred / needs-human queue so promotions don't span sessions unnoticed.
 - **Before finishing:** append `devlog/YYYY-MM-DD-HHMM-slug.md`: decisions
   (why, and what was rejected), deferrals, open questions. Note anything
   that should be promoted to AGENTS.md: a new invariant discovered, a
-  convention that wasn't written down, a gotcha that bit you. The devlog
-  entry records it; a follow-up commit promotes it. Use local 24-hour
-  time so same-day entries sort in session order. Keep it dense: decisions,
-  not narration; target ≤ ~40 lines per session-round, scaling when one entry
-  consolidates many review rounds. Commits and PR threads carry the
-  what-changed.
+  convention that wasn't written down, a gotcha that bit you; the entry
+  records it, a follow-up commit promotes it. Commits and PR threads carry
+  the what-changed.
 
 <!-- /agents-md:managed:devlog -->
 
@@ -45,7 +43,7 @@ checks green**, not a merged branch. Merging is a human decision; do not
 merge your own PR unless the user explicitly asks, or the project has adopted
 an opt-in self-merge workflow.
 
-Use this checklist at the start of each work session:
+Use this checklist for each work session:
 
 1. Read README plus the latest devlog entries, then start from `main`, or,
    for a follow-up that depends on an open PR, from that PR's branch (see
@@ -56,35 +54,29 @@ Use this checklist at the start of each work session:
 4. Run the relevant verification plus the standard lint/build/test checks
    before PR; if any check cannot run, record the exact gap in the PR.
 5. Commit one concern at a time with a body that says why.
-6. Before opening a docs/chore PR (or at session end), `grep` the devlog
-   for the open promote / deferred / needs-human queue and clear what the
-   current scope covers, or explicitly re-defer; decided invariants
-   shouldn't live only as devlog archaeology.
+6. Before opening a docs/chore PR (or at session end), grep the devlog
+   for the open `## To promote` / deferred / needs-human queue and clear
+   what the current scope covers, or explicitly re-defer; decided
+   invariants shouldn't live only as devlog archaeology.
 7. Push, open the PR with the template, and remove sections that do not apply.
-8. If an automated reviewer is active, start one review-watch for the
-   PR/reviewer before waiting on checks: use any available review-watch
-   skill, tool, or automation that can report back without manual polling,
-   anchor the baseline to the event that should produce the next reviewer pass,
-   and do not ask whether to watch when a permitted non-blocking mechanism
-   exists.
-9. Poll required checks until they finish; fix failures on the branch.
-10. Before handoff, let the review-watch finish: handle any in-scope reviewer
-    activity, or record the bounded timeout / no-review result with the baseline.
-11. Self-review the PR files view, then hand off, leave the PR open for a
-    human to review and merge.
+8. Hand off per "Handing off the PR" (under Pull requests): start the
+   review-watch, wait out required checks, handle reviewer activity,
+   self-review the PR files view, and leave the PR open for a human to
+   review and merge.
 
 For changes on a **destructive path** (delete/cleanup), a
-**credential-leak surface**, or a **returned-object-trust boundary**, add a
-refute-first verification pass before committing (independent lenses whose
-job is to _disprove_ the fix) and record in the devlog which findings were
-confirmed, rejected-by-verification (so they're not re-raised), and
-accepted-by-decision. Scope this to those risk classes; a docs typo or
-pure refactor shouldn't trigger it.
-
-Stop once the PR is open, green, and self-reviewed. Say what remains (review
-and merge) and point the reviewer at anything that needs attention. Don't
-merge, delete the branch, or resync `main` yourself unless the user asks for
-that, or the project has adopted a self-merge workflow.
+**credential-leak surface**, or a **returned-object-trust boundary**
+(trusting fields of a value handed back by an external call or
+deserializer), add a refute-first verification pass before committing
+(independent lenses whose job is to _disprove_ the fix) and record in
+the devlog which findings were confirmed, rejected-by-verification (so
+they're not re-raised), and accepted-by-decision. For a
+behavior-preserving refactor on one of these paths, where the platform
+can execute code, have a lens reconstruct the
+old implementation (`git show <base>:<file>`) and compare old against new
+decision-for-decision over a fuzzed corpus; a diff-read can only assert
+equivalence, a harness measures it. Scope all of this to those risk
+classes; a docs typo or a refactor off these paths shouldn't trigger it.
 
 <!-- /agents-md:managed:finish-line -->
 
@@ -402,10 +394,12 @@ enforced. Violating one is a security regression, not a style nit.
 
 ## Branches
 
-All work lands through a PR: branch from `main`, do the work as atomic
-commits (see Commits), open a PR, merge with a real merge commit;
-never commit directly to `main`. No triviality exception; exceptions
-are where the `--first-parent` narrative erodes.
+All work lands through a PR: branch from `main` (read `main` as the
+repo's default branch throughout), do the work as atomic commits (see
+Commits), open a PR; the work merges with a real merge commit, a
+human's call per the finish line. Never commit directly to `main`. No
+triviality exception: every bypass erodes the `--first-parent`
+narrative.
 
 Name branches `<type>/<short-kebab-slug>`: type from the Conventional
 Commits vocabulary (`feat`, `fix`, `refactor`, `docs`, `chore`), slug
@@ -420,8 +414,21 @@ chore/swift-format-sweep
 Exactly one slash: refs are path-like, so `feat/x` and a branch named
 just `feat` can't coexist. No ticket numbers, dates, or owner prefixes;
 prepend an owner segment (`bnw/feat/…`) only if multiple people or
-agents start pushing in parallel. Merged branches auto-delete (repo
-setting); the merge commit carries the narrative.
+agents start pushing in parallel. Merged branches auto-delete where
+that repo setting is on (delete them after merge where it isn't); the
+merge commit carries the narrative.
+
+**Prefer a dedicated worktree per work unit.** Where your platform and
+session support working from a second checkout (a native worktree tool
+or session flag, or plain
+`git worktree add <path> -b <type>/<slug> <base>`), do the work in a
+dedicated worktree instead of the shared primary checkout, so parallel
+agent sessions and the user's own work never collide on files, branch
+state, or uncommitted changes. Remove the worktree once its branch
+merges (`git worktree remove <path>`). Where they don't (no
+multi-checkout support, or a sandbox pinned to one directory), fall
+back to a branch in the primary checkout; the branch discipline above
+still applies either way.
 
 Follow-up work that depends on an open PR can stack on its branch instead
 of waiting; see the Stacked PRs pattern under Pull requests.
@@ -437,164 +444,180 @@ commit. Commits carry the atomic why (see Commits); the PR carries the
 arc.
 
 - **Title**: imperative, ≤ 72 chars, names the outcome, no type prefix
-  or ticket noise ("Fix missing menu bar on unbundled launch"). Repo
-  settings put the PR title and body into the merge commit, so
-  `git log --first-parent` reads as the list of PR titles; write the
-  title for that log.
-- **Body**, scaffolded by `.github/pull_request_template.md`:
+  or ticket noise ("Fix missing menu bar on unbundled launch"). In the
+  intended repo setup the PR title and body become the merge commit
+  message, so `git log --first-parent` reads as the list of PR titles;
+  write the title for that log either way.
+- **Body**: scaffolded by the repo's PR template (on GitHub:
+  `.github/pull_request_template.md`):
   - **Why**: prose, one to three short sentences. State the problem or
     motivation. Link the devlog entry when one exists; don't duplicate it.
-    Add a close keyword immediately before each issue number the PR fully
-    resolves or finishes (`Closes #11`; repeat the keyword to close several,
-    `Closes #11, closes #12`, since a bare list like `Closes #11, #12`
-    closes only the first). Reference related-but-unfinished issues with a
-    plain `#N` (e.g. `Refs #N`), which links without closing, and leave
-    those for a human.
+    Where the template's comment spells out issue keywords, follow it
+    exactly: a close keyword per issue the PR fully resolves, a plain
+    `Refs #N` for related-but-unfinished issues that are left for a
+    human to close.
   - **What**: required bullets. Describe work-unit outcomes, not
     file-by-file churn. For multi-commit PRs, use a compact commit map
-    (one bullet per commit or concern) and say rejected alternatives live
-    in the devlog when they do.
+    (one bullet per commit or concern), referencing each commit by its
+    subject, not its SHA: folding a review fix into its commit (see
+    Commits) rewrites every downstream SHA, so a SHA-keyed map forces a
+    body rewrite each round, while subjects don't go stale. Say rejected
+    alternatives live in the devlog when they do.
   - **Screenshots**: required for PRs with visible UI changes; delete it
-    for non-visual work. Replace the section with actual GitHub-hosted,
-    reviewer-visible image or recording attachments before merging; local
-    paths, textual descriptions, and "checked locally" notes do not satisfy
-    it. If you cannot attach the artifacts yourself, stop before merge and
-    ask the user to add or confirm them. Show the changed surfaces,
-    important states, and both paper/ink palettes when the change affects
-    appearance. Keep captions short and name the state shown. Verification
+    for non-visual work. Replace the section with actual forge-hosted,
+    reviewer-visible image or recording attachments before handing off,
+    and in every case before merge; local paths, textual descriptions,
+    and "checked locally" notes do not satisfy it. If you cannot attach
+    the artifacts yourself, say so at handoff and ask the user to add
+    or confirm them before merge. Show the changed surfaces,
+    important states, and every theme or appearance mode the change
+    affects. Keep captions short and name the state shown. Verification
     still belongs in Verification.
   - **Review Notes**: optional bullets; delete the section when it adds
     no routing value. Use it to point reviewers at important files, review
     order, mechanical commits, or risky edges.
   - **Verification**: required bullets. Start each with `Passed:`,
     `Checked:`, `Attempted:`, or `Not run:`. Say what was actually run and
-    observed: tests, lint, fixture/screenshot checks (both palettes for
-    UI), export/import round-trip for schema changes. Facts only: never
+    observed: tests, lint, fixture/screenshot checks (every affected theme
+    for UI), round-trips for schema changes. Facts only, never
     "should work"; verification gaps are explicit `Not run:` bullets.
     Factual doc claims ship under the same discipline: counts, flags,
-    behaviors, and subprocess/network guarantees are checked against the
-    code and scoped to the surface they describe (a compiled CLI and a
-    wrapper script differ), stated without marketing or competitor
-    put-downs.
+    behaviors, and runtime guarantees are checked against the code and
+    scoped to the surface they describe, stated without marketing or
+    competitor put-downs.
 - **Self-review the diff in the PR files view before handing off**: seeing
   the whole change as one artifact catches stray hunks, leftover debug code,
   scope creep, and accidental files the editor hid. This is a
-  _mechanical-hygiene_ pass: it works because the representation changes, not
-  because same-context review judges design well; it does **not** substitute
-  for substantive critique.
+  _mechanical-hygiene_ pass; it does **not** substitute for substantive
+  critique.
 - **Substantive critique needs fresh, ideally non-self eyes.** Same-context
-  self-review shares the blind spots that produced the code, and models lean
-  toward agreeing with their own output, so it is weak for correctness,
-  design, and missed edge cases. Independence ladder, weakest to strongest:
-  self-in-context < same-model fresh-context subagent < different-vendor bot /
-  human. An automatic bot reviewer or a human is the load-bearing substantive
-  pass; the default finish line already stops at an open PR for one.
+  self-review shares the blind spots that produced the code. Independence
+  ladder, weakest to strongest: self-in-context < same-model fresh-context
+  subagent < different-vendor bot / human. An automatic bot reviewer or a
+  human is the load-bearing substantive pass; the default finish line
+  already stops at an open PR for one.
 - **Optional, risk-gated: a fresh-context pre-push review.** For non-trivial
-  changes (or any repo without an external bot reviewer) get a _fresh_ set of
-  eyes before pushing, to converge before the external bot. **Where your
-  platform and tools support delegation** (and it is allowed without asking),
-  spawn a fresh-context reviewer: prompt it to _refute_, give it only the diff
-  plus the PR's stated intent (not your reasoning trail), and let it hunt
-  correctness, security, and edge-case failures. **Where they don't** (an
-  agent with no subagent concept, or a session where delegation needs explicit
-  permission) skip it and lean on the external bot / human review, or ask the
-  user first; never emit steps the running agent can't perform. Caveats even
-  when available: a same-model subagent is only _partially_ independent (shared
-  architectural blind spots) and costs tokens; scale to risk, skip trivial or
-  mechanical work.
-- **Record a noticed automated reviewer.** When you observe this repo has an
-  automated PR reviewer (a bot-authored review on a recent PR) and the project
-  hasn't recorded it, add a one-line note to an unmanaged, project-specific
-  section of AGENTS.md with enough identity to match its future reviews: the
-  reviewer's **name**, its **login/account identity** (including the API-specific
-  form when it differs: some hosts suffix bot logins, e.g. a `[bot]` suffix in
-  one API but not another), and how it is **triggered** (automatic on PR events,
-  a manual command, or a CI job). Keep the actual reviewer record outside
-  `agents-md:managed:*` blocks so agent-setup updates do not overwrite it. Later
-  sessions filter review activity by that login and presence alone can't
-  disambiguate two bots, so the identity (not a bare "a reviewer exists") is
-  the point. Record only a reviewer you actually observed, never its absence: a
-  stale record naming a removed reviewer costs at most a wasted wait, while a
-  recorded "none" would silently skip a reviewer added later.
-- **Responding to automated review.** Bot reviewers (inline P1/P2
-  comments) draw a lot of feedback; evaluate each comment on its merits.
-  Fix real findings; push back (_with a one-line reason_) on contrived,
-  speculative, or already-fixed ones. Do not reflexively comply. Reply
+  changes, or any repo without an external bot reviewer, get fresh eyes
+  before pushing. **Where your platform and tools support delegation** (and
+  it is allowed without asking), spawn a fresh-context reviewer: prompt it
+  to _refute_, give it only the diff plus the PR's stated intent (not your
+  reasoning trail), and let it hunt correctness, security, and edge-case
+  failures. **Where they don't** (no subagent concept, or delegation needs
+  explicit permission), skip it and lean on the external bot / human review,
+  or ask the user first; never emit steps the running agent can't perform.
+  A same-model subagent is only _partially_ independent and costs tokens;
+  scale to risk, skip trivial or mechanical work.
+- **Record a noticed automated reviewer.** When you observe a bot-authored
+  review on a recent PR, or a reviewer status signal (a bot reacting on PR
+  descriptions shortly after they open, recurring across PRs: a reviewer
+  whose passes have all been clean may never post a review), and the project
+  hasn't recorded the reviewer, add a compact
+  record (an "Automated reviewer" entry; the required fields below usually
+  take a short paragraph) to an unmanaged, project-specific section of
+  AGENTS.md
+  (outside `agents-md:managed:*` blocks, so syncs don't overwrite it) with
+  enough identity to match its future reviews: the reviewer's **name**, its
+  **login/account identity** (including the API-specific form when it
+  differs, e.g. a `[bot]` suffix in one API but not another), how it is
+  **triggered** (automatic on PR events, a manual command, or a CI job), and
+  any **status signals** it posts out of band (an in-progress or clean-pass
+  indicator, e.g. a reaction on the PR description; some reviewers post no
+  review at all on a clean pass, so the recorded clean-pass signal is what
+  lets a later watch finish instead of timing out). Later sessions filter
+  review activity by that login, so the identity, not a bare "a reviewer
+  exists", is the point. An existing record is not a reason to skip: when
+  you observe status signals (or a changed trigger) the record lacks,
+  augment it in place, since a name/login/trigger-only record still forces
+  the full wait cap on clean passes. Record only a reviewer and signals you
+  actually observed, never an absence.
+- **Responding to automated review.** Evaluate each comment on its merits:
+  fix real findings; push back, _with a one-line reason_, on contrived,
+  speculative, or already-fixed ones; never reflexively comply. Reply
   inline with the disposition and the fixing commit SHA ("Fixed in
   `<sha>`" / a reasoned decline), then resolve the thread. Resolving every
   thread is _not_ a hard merge gate; evaluate-on-merits is.
 - **Fix the class, not just the cited line.** When a finding names one
-  location, sweep the file/repo for the same class and fix every instance in
-  the same push; otherwise the bot re-reviews on the next push and flags the
-  siblings one at a time, so sweeping converges in far fewer cycles. **Make the
-  sweep mechanical**: grep/search the file (and repo) for the finding's
-  pattern, don't just eyeball the nearby lines; the same class routinely recurs
-  in sibling sentences or files the citation never named, and a half-sweep only
-  resurfaces it next round. Expect that re-review loop, and expect diminishing returns: automated reviewers can
-  surface ever-smaller nits indefinitely, so converge and hand off rather than
-  chasing every round to zero (value captured is the bar, not threads-at-zero).
-- **Don't under-converge either.** The flip side of not chasing nits: don't
-  declare a PR "addressed" while the reviewer is still raising real issues, and
-  never treat a finding that recurs from your _own_ incomplete fix as
-  convergence: that is a miss to sweep, not a stop. Agents lean toward stopping
-  early and rationalizing it, so bias toward continuing while findings are
-  genuinely worthwhile; the human's merge is the reliable convergence signal,
-  not your own sense that you are done.
+  location, sweep the file and repo mechanically (grep for the finding's
+  pattern, don't just eyeball nearby lines) and fix every instance in the
+  same push: the class routinely recurs in sibling sentences or files the
+  citation never named, and each miss costs another review round. For
+  validation or parsing code, the mechanical sweep is an adversarial
+  enumeration of the input space (case, spacing, indentation,
+  prefix/suffix, order, duplication, nesting), run once as tests, not a
+  widening of the cited pattern: pattern-widening spent eight review
+  rounds on one class before the enumeration closed it.
+- **Converge deliberately, and don't under-converge.** Automated
+  reviewers can surface ever-smaller nits indefinitely, so converge
+  and hand off rather than chasing every round to zero (value captured
+  is the bar, not threads-at-zero). But don't declare a PR "addressed"
+  while the reviewer is still raising real issues, and never treat a
+  finding that recurs from your _own_ incomplete fix as convergence;
+  that is a miss to sweep, not a stop. Bias toward continuing while
+  findings are genuinely worthwhile; the human's merge is the reliable
+  convergence signal, not your own sense that you are done.
 - **Keep the body current as review evolves the PR.** The body becomes the
-  merge commit, so when review adds commits or shifts scope, update What, the
-  commit map (flag which commits resolve review findings), and Verification
-  before re-handing-off. The inline disposition + fixing SHA on each resolved
-  thread (above) is the located per-finding record; don't duplicate it into
-  a standing "feedback" section that would drift.
-- Merge-commit merges are the only enabled method (squash and rebase
-  are disabled in repo settings) and merged branches auto-delete: the
-  settings enforce the Commits rules; don't re-enable around them.
+  merge commit, so when review adds commits or shifts scope, update What,
+  the commit map (flag which commits resolve review findings, by subject as
+  above), and Verification before re-handing-off. The inline disposition +
+  fixing SHA on each resolved thread (above) is the located per-finding
+  record (that reply is written once, post-fold, so its SHA doesn't churn);
+  don't duplicate it into a standing "feedback" section that would drift.
+- The intended repo settings enforce the Commits rules: merge commits
+  only (squash and rebase disabled) and auto-delete of merged branches.
+  Don't re-enable around them; where they aren't set, hold the same
+  rules manually (merge-commit merges only, delete the remote branch
+  after merge).
 
 ### Handing off the PR
 
-Opening the PR is the agent's finish line: leave it open for a human to
-review, approve, and merge, unless the user explicitly asks you to merge or
-the project has adopted a self-merge workflow. Once the PR is up:
+An open PR, not a merged one, is the agent's finish line; leave it
+open for a human to review, approve, and merge, unless the user
+explicitly asks you to merge or the project has adopted a self-merge
+workflow. Done means open, green, threads handled, self-reviewed, and
+no new review activity outstanding. Once the PR is up:
 
-- **Wait for required checks**: poll `gh pr checks <n>` until they
-  complete; fix any red check on the branch, never hand off a known-red PR.
+- **Start one review-watch per PR/reviewer as soon as the PR is open**,
+  where the project records an automated reviewer or you have observed
+  one, before waiting on checks, so the checks wait can't defer it.
+  Prefer a dedicated review-watch skill, tool, or automation that can
+  report back without manual polling; otherwise, if
+  your platform can watch non-blockingly (a backgrounded poll or scheduled
+  wake-up) and policy permits that mechanism, use it; don't pause to ask
+  whether to watch. If a non-blocking mechanism would need permission not
+  already granted, take the next permitted path. Where non-blocking support
+  is absent, use a bounded foreground poll when it fits the current turn;
+  otherwise hand back with the baseline and don't silently skip the review.
+- **Anchor the watch baseline to the event that should produce the next
+  reviewer pass**, not the moment the watch starts: the PR open/ready or
+  actual push event for open/push-triggered reviews; the request time for a
+  no-push recheck (marking ready, manually requesting review). Reviewer
+  activity after that event is in-scope and must be handled, never absorbed
+  into the baseline as already-seen. On a new push, advance or replace the
+  baseline rather than leaving duplicate watchers running.
+- **Wait for required checks**: poll them until they complete (on
+  GitHub: `gh pr checks <n>`); fix any red check on the branch, never
+  hand off a known-red PR.
 - **Self-review the diff** (above) so it's ready for a reviewer.
-- **Watch for new review activity between turns**: the finish line means
-  open, green, threads handled, self-reviewed, _and no new review activity
-  outstanding_. Where a reviewer is active, first use any dedicated
-  review-watch skill, tool, or automation your environment exposes that can
-  report back or re-enter without manual polling; otherwise follow this workflow
-  manually. If your platform can watch non-blockingly (a backgrounded poll or
-  scheduled wake-up) and policy permits that mechanism,
-  **starting one active watch per PR/reviewer is the default; don't pause to ask
-  whether to watch**. If a non-blocking mechanism would require permission that
-  is not already granted, use the next permitted path instead of selecting it.
-  Anchor that baseline to the trigger event that should produce the next reviewer pass,
-  not the moment the watch starts: use the PR open/ready event or actual push
-  event for open/push-triggered reviews, and use the request time for a no-push
-  recheck such as marking ready or manually requesting review. Reviewer activity
-  after that event is in-scope and must be handled, not absorbed into the
-  baseline as already-seen; start the watch as soon as the PR is open so the
-  checks wait can't defer it. On a new push, advance or replace that watch's
-  baseline rather than leaving duplicate watchers running. Poll open PRs for
-  _both_ new review comments and CI, address findings on the branch, and only
-  then declare done. Where non-blocking support is absent, use a bounded
-  foreground poll only when it fits the current turn; otherwise hand back with
-  the baseline and don't silently skip the review.
+- **Close out the watch before handoff**: poll for _both_ new review
+  comments and CI, address in-scope findings on the branch, or record the
+  bounded timeout / no-review result with the baseline; only then declare
+  done.
 - **Stop and summarize**: say the PR is open and green, and surface
   anything the reviewer should focus on. Leave merging, branch cleanup, and
   the `main` resync to whoever approves it.
 
-If the user does ask you to merge, use `gh pr merge <n> --merge` (the only
-enabled method; the remote branch auto-deletes), then resync
+If the user does ask you to merge, merge with a real merge commit (on
+GitHub: `gh pr merge <n> --merge`), delete the remote branch if the
+auto-delete setting didn't, then resync
 (`git checkout main && git pull --ff-only`), delete the local branch
 (`git branch -d <branch>`), and `git fetch --prune`.
 
 ### Reviewing a PR
 
 The mirror of "Responding to automated review": hold the bar you'd want
-held for you. Use the project's review tooling for the bug-hunting pass;
-these are the conventions for the comments it produces.
+held for you. Use the project's review tooling for the bug-hunting
+pass where it has any, otherwise read the full diff yourself; these
+are the conventions for the comments the pass produces.
 
 - **Calibrate to severity, and tag it.** Separate blocking findings
   (correctness, security, data-loss, red tests/CI, broken invariants) from
@@ -621,11 +644,12 @@ these are the conventions for the comments it produces.
 ### Stacked PRs
 
 Dependent docs or cleanup work can proceed without waiting for its base: a
-follow-up PR can be based on an open PR's branch (`gh pr create --base
-<feature-branch>`) and auto-retargets to `main` when the base merges. Two
-gotchas: while the base is open the stacked PR's diff shows only its own
-commits; and if the base is force-pushed (fold-fix above), `rebase --onto`
-the stack onto the new base tip.
+follow-up PR can be based on an open PR's branch (on GitHub:
+`gh pr create --base <feature-branch>`, which auto-retargets to `main`
+when the base merges; on other forges retarget it manually). Two
+gotchas: while the base is open the stacked PR's diff shows only its
+own commits; and if the base is force-pushed (the fold-review-fixes
+rule in Commits), `rebase --onto` the stack onto the new base tip.
 
 <!-- /agents-md:managed:pull-requests -->
 
@@ -639,13 +663,15 @@ log tells the project's evolution). Rules:
 
 - **One concern per commit, every commit green.** If the body wants
   labeled sections (Correctness:/Performance:/…), it's more than one
-  commit: split it. Each commit must build and pass tests on its own;
+  commit; split it. Each commit must build and pass tests on its own;
   never leave red intermediate states (it breaks bisect).
-- **Body says why, not just what.** Keep the current style: dense,
-  specific, wrapped ≤ 72 columns. Reference the session's devlog entry
+- **Body says why, not just what.** Write dense, specific bodies,
+  wrapped ≤ 72 columns. Reference the session's devlog entry
   when one exists. State change deltas ("27 → 36 tests") if meaningful;
   never absolute status ("36 tests green"); CI asserts that, and it
   goes stale.
+- **Never commit secrets** (credentials, tokens, keys, `.env`
+  contents); reference them by name and use placeholders in examples.
 - **Mechanical churn commits alone.** Reformats, renames, and moves get
   their own commit, added to `.git-blame-ignore-revs` in the same change
   (activate locally with
@@ -655,15 +681,15 @@ log tells the project's evolution). Rules:
   commit, fold it into that commit rather than appending an "address
   review" commit; the merged PR keeps its clean, bisectable structure.
   Guardrails: every commit still builds and passes tests after the fold;
-  `--force-with-lease`, **feature branch only: never force-push `main`**;
+  `--force-with-lease`, **feature branch only, never force-push `main`**;
   only while the PR is unmerged (once merged, a fix is a new commit);
   update the matching devlog entry in the same operation. The mechanism
   (reset/amend/rebase) is your judgement.
 - **Never squash-merge multi-commit work**: it destroys the atomic
   structure above. Merge with a real merge commit so
   `git log --first-parent` reads as the work-unit narrative and the full
-  log holds the atoms. Narrative subjects ("M2+M3: walking skeleton…")
-  belong at that merge/PR level.
+  log holds the atoms. Narrative subjects ("Walking skeleton: end-to-end
+  flow") belong at that merge/PR level.
 
 <!-- /agents-md:managed:commits -->
 
@@ -671,7 +697,7 @@ log tells the project's evolution). Rules:
 
 ## Definition of done for an increment
 
-Each increment is something actively used by the end of the work session,
+Each increment is something actively used by the end of the work session:
 not "code complete" or "tests pass" alone, but running and exercised.
 Before calling work done:
 
