@@ -84,23 +84,36 @@ To let an agent reach for the tool without a per-run approval prompt, pick one o
 - **Zero-install:** `npx -y @freeasinbird/gh-imgup …`. Convenient, but every run re-downloads and executes freshly-resolved package code. Some agents' approval reviewers (Codex) refuse to auto-approve that, `-y` or not (see below).
 - **Pinned pre-installed (recommended for repeat use / strict reviewers):** install once (`npm i -g @freeasinbird/gh-imgup@X.Y.Z`) and allowlist the bare `gh-imgup`. Auditable once, no per-run download, and it passes stricter reviewers.
 
-**Claude Code.** Auto-running a shell command without a prompt is an allowlist decision (a skill can't self-authorize), delivered any of these ways:
+**Claude Code.** Add a permission allow rule; in auto mode, some invocations additionally need a classifier exception. A skill can't self-authorize either one.
 
-- Add an allow rule to `~/.claude/settings.json` (covers every repo you work in). For the recommended pinned form:
+1. **A permission allow rule** removes the approval prompt, and a narrow rule like `Bash(gh-imgup *)` also carries over into auto mode, resolving before its safety classifier: the pinned flow needs nothing else. In `~/.claude/settings.json`, or a repo's checked-in `.claude/settings.json` to share it with a team:
 
-  ```json
-  {
-    "permissions": {
-      "allow": ["Bash(gh-imgup *)"]
-    }
-  }
-  ```
+   ```json
+   {
+     "permissions": {
+       "allow": ["Bash(gh-imgup *)"]
+     }
+   }
+   ```
 
-  For the zero-install form instead, use `"Bash(npx -y @freeasinbird/gh-imgup *)"`, but only add the rule for the form you actually run: the npx rule re-opens the unpinned download path the pinned form avoids. Put the rule in a repo's checked-in `.claude/settings.json` to share it with a team.
-- Or, on the first approval prompt, choose **"Yes, and don't ask again…"**, which writes the matching rule for the command you just ran.
-- Or pass it per session: `--allowedTools 'Bash(gh-imgup *)'` (or the npx rule).
+   For the zero-install form use `"Bash(npx -y @freeasinbird/gh-imgup *)"` instead (plus `"Bash(npx -y @freeasinbird/gh-imgup@*)"` if you pin in CI). Bless only the form you actually run, never a blanket `Bash(npx *)` (it would auto-approve any package). Rules match by command prefix, so `GITHUB_TOKEN=$(gh auth token) gh-imgup …` won't match (and an `export` doesn't persist between an agent's shell calls). Run the command bare instead: with `GITHUB_TOKEN` unset, gh-imgup resolves the `gh` CLI token itself. Choosing **"Yes, and don't ask again…"** at the first prompt writes the rule for you.
 
-Scope the allow rule to this package: a blanket `Bash(npx *)` would auto-approve any package (a supply-chain risk). If you pin in CI, the trailing ` *` won't match `…@0.1.0`, so add `Bash(npx -y @freeasinbird/gh-imgup@*)` too.
+2. **If auto mode's safety classifier still denies the run**, add an `autoMode.allow` entry. The classifier adjudicates what no narrow allow rule resolves ([auto mode configuration](https://code.claude.com/docs/en/auto-mode-config.md)), and it flags gh-imgup as external npm code holding a live token: in our testing it denied the zero-install form even with the matching npx allow rule in place (the docs don't classify package-runner rules), and it gates every command when `autoMode.classifyAllShell` is enabled. The entry goes in `~/.claude/settings.json` or `.claude/settings.local.json` (the classifier ignores a repo's checked-in `.claude/settings.json`); describe the form you run, e.g. for zero-install:
+
+   ```json
+   {
+     "autoMode": {
+       "allow": [
+         "$defaults",
+         "Running the gh-imgup screenshot uploader (npx -y @freeasinbird/gh-imgup), including passing it a GitHub token via GITHUB_TOKEN or $(gh auth token). This is a sanctioned tool for attaching screenshots to my PRs/issues; treat it as trusted with repo write scope."
+       ]
+     }
+   }
+   ```
+
+   Keep the literal `"$defaults"` (without it the entry replaces the built-in rules), and bless only the form you run: for the pinned install, describe the locally-installed `gh-imgup` binary instead. Add the entry yourself, or have the agent add it with auto mode briefly off; in our testing the classifier blocked the agent from writing it in auto mode.
+
+With no settings change at all, run the upload yourself from the input box: `! GITHUB_TOKEN=$(gh auth token) gh-imgup shot.png --repo owner/repo --raw`.
 
 **Codex** doesn't read Claude settings, and its approval reviewer won't auto-run `npx` (it sees unpinned downloaded code with credential access). Use the pinned form:
 
