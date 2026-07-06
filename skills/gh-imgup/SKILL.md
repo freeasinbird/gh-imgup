@@ -62,6 +62,16 @@ Claude Code allowlists `Bash(gh-imgup *)` (or
 `Bash(npx -y @freeasinbird/gh-imgup *)` for the npx form); Codex approves the
 persistent prefix `["gh-imgup"]` after a pinned install.
 
+A host agent's safety classifier can still deny the run (typical objection:
+external npm code being handed a live GitHub token; observed for the npx form
+even with its allow rule present, and for env-prefixed commands, which match
+no rule). In Claude Code auto mode the fix is an `autoMode.allow` entry; the
+snippet is in the README's "Pre-authorize for agents" section. Surface it to
+the user to add (in our testing the classifier blocked the agent from writing
+it in auto mode; it works with auto mode briefly off), or offer the
+zero-config fallback: the user runs the upload from the input box, e.g.
+`! GITHUB_TOKEN=$(gh auth token) gh-imgup shot.png --repo owner/repo --raw`.
+
 The tool resolves the target repo from `--repo` or the git `origin` remote,
 resolves a token from `GITHUB_TOKEN` (or the `gh` CLI), uploads each file,
 verifies its SHA-256, and prints the result.

@@ -320,7 +320,14 @@ enforced. Violating one is a security regression, not a style nit.
   a pinned `…@0.1.0`); Codex persistent prefix `["gh-imgup"]` (Codex won't
   auto-run npx at all). Don't drift the docs/SKILL invocations or these allow
   strings off each other across README/SKILL/AGENTS. See the README
-  "Pre-authorize for agents" section.
+  "Pre-authorize for agents" section. In Claude Code auto mode a safety
+  classifier gates whatever no narrow allow rule resolves (second gate,
+  after permissions): the pinned `Bash(gh-imgup *)` rule carries over and
+  covers the bare pinned form, but the npx form was denied even with its
+  allow rule present, and an env-prefixed command matches no rule. Those
+  need a user-added `autoMode.allow` entry (snippet and constraints in the
+  README section); in testing the agent couldn't write it from inside auto
+  mode, and a repo's checked-in `.claude/settings.json` can't carry it.
 - **Never attach a release asset whose name ends in a platform `<os>-<arch>`
   suffix** (`*-darwin-amd64`, `*-linux-amd64`, `*-windows-amd64.exe`, …), and
   that's _any_ asset, not just a `gh-imgup-<os>-<arch>` binary. The `gh`
