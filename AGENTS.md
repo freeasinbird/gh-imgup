@@ -10,33 +10,49 @@ pull requests, commits, build commands, and the security invariants that
 define the project. It serves both human contributors and automated
 agents.
 
+Agent-setup profile: High-assurance. A decision note is mandatory for
+changes touching: destructive cleanup or deletion behavior; credential
+and secret-leak surfaces; returned-response, deserialization, or
+remote-service trust boundaries; network destination and upload-routing
+decisions; CLI output contracts consumed by automation; and security or
+release-policy changes.
+
 <!-- agents-md:managed:devlog -->
 
-## Devlog (session bookends)
+## Decision notes (devlog)
 
-`devlog/` holds the reasoning trail: one short entry per working
-session. `devlog/README.md` is the protocol: entry naming, density
-target, structure, and when an entry may be revised.
+`devlog/` holds selective decision records, not session logs: at most
+one note per work unit or PR in the ordinary case, named
+`YYYY-MM-DD-HHMM-slug.md`. `devlog/README.md` is the protocol; most
+work needs no note.
 
-- **Before starting:** read the most recent one or two entries
-  (`find devlog -maxdepth 1 -type f -name '*.md' ! -name README.md | sort | tail -2`);
-  they carry decisions and deliberate deferrals that aren't in the spec.
-  Don't re-litigate or "fix" what an entry marks as decided/deferred without
-  the user asking. Also grep the devlog for the open `## To promote` /
-  deferred / needs-human queue so promotions don't span sessions unnoticed:
-  an item with no `->` state marker (or whose `-> re-deferred` clock has
-  run out) is open, unless a later entry or a tracker issue naming that
-  item and its source entry holds its drain record (see devlog/README.md).
-- **Before finishing:** append `devlog/YYYY-MM-DD-HHMM-slug.md`: decisions
-  (why, and what was rejected), deferrals, open questions; the entry may be
-  built incrementally at checkpoints while its PR is unmerged (see
-  devlog/README.md). Note anything
-  that should be promoted to AGENTS.md: a new invariant discovered, a
-  convention that wasn't written down, a gotcha that bit you; the entry
-  records it, a follow-up commit promotes it. Draining or re-deferring a
-  queue item appends a `->` state marker to the source item
-  (devlog/README.md defines the forms). Commits and PR threads carry
-  the what-changed.
+- **Write or update a note only when** the work involves at least one
+  of: a consequential, non-obvious decision that rejects a plausible
+  alternative; an investigation or verification result that materially
+  changes the model, policy, risk, or implementation direction; a
+  durable owner choice that would otherwise exist only in chat;
+  cross-session context the work unit's PR or issue genuinely doesn't
+  carry; or a change on the project's mandatory-note list, where it
+  keeps one. Routine implementation, formatting, ordinary docs,
+  dependency maintenance, mechanical syncs, and uncomplicated fixes
+  need no note unless they reveal something consequential.
+- **Content**: final rationale, rejected alternatives, changed
+  assumptions, significant verification findings, and a "Revisit
+  when ..." condition where one is useful; not commit diffs, test
+  transcripts, or PR status. A note may evolve while its work unit or
+  PR is active; it freezes on merge.
+- **Retrieval**: read the notes linked from the issue or PR at hand;
+  otherwise search by affected path, topic, contract, or decision
+  name. Read the latest note only when resuming the work unit it
+  describes. Prior notes are evidence, not prohibitions: do not
+  silently overturn an explicit owner decision; if new evidence
+  conflicts with one, identify the prior decision, state which
+  assumption or condition changed, and surface the proposed revision.
+- **Actionable deferred work goes to the issue tracker**, not the
+  note. When an issue originates from a note, link the note from the
+  issue; the note may carry a plain historical `Follow-up: #N` link,
+  never a second source of status. An observation that is not yet
+  actionable becomes a "Revisit when ..." statement, not open work.
 
 <!-- /agents-md:managed:devlog -->
 
@@ -50,35 +66,48 @@ checks green**, not a merged branch. Merging is a human decision; do not
 merge your own PR unless the user explicitly asks, or the project has adopted
 an opt-in self-merge workflow.
 
+Before implementation, establish a lightweight work contract: objective,
+testable acceptance criteria, scope, dependencies and blockers, and explicit
+non-goals. Direct user-assigned work needs no issue; the prompt and
+eventual PR may carry the contract together. Persist that same contract
+in a tracker issue when the work must survive a session boundary,
+coordinate concurrent workers, or join a backlog. Actionable work
+deferred out of the unit's scope gets a tracker issue before handoff.
+
+By default, begin work only through explicit user assignment. An issue, label,
+backlog entry, satisfied dependency, or claim is not authorization to select
+and start work. Agent self-selection requires an explicit project-specific
+opt-in policy.
+
 Use this checklist for each work session:
 
-1. Read README plus the latest devlog entries, then start from `main`, or,
-   for a follow-up that depends on an open PR, from that PR's branch (see
-   Stacked PRs under Pull requests).
-2. Create one correctly named branch for the work unit.
-3. Make the scoped change, including docs/devlog/tests/assets that keep it
-   complete.
+1. Read the README and, when resuming an existing work unit, its issue or
+   PR and any decision note it links. Resolve the repository's
+   default branch explicitly, update it from its remote, and start ordinary
+   work from that exact tip, not from whichever branch is currently checked
+   out. Only an intentionally declared stacked PR may start from another open
+   PR's branch (see Stacked PRs under Pull requests).
+2. Create one correctly named branch explicitly from that starting tip.
+3. Make the scoped change, including the docs/tests/assets that keep it
+   complete and, where the project keeps decision notes, a note when
+   the work meets its triggers.
 4. Run the relevant verification plus the standard lint/build/test checks
    before PR; if any check cannot run, record the exact gap in the PR.
 5. Commit one concern at a time with a body that says why.
-6. Before opening a docs/chore PR (or at session end), grep the devlog
-   for the open `## To promote` / deferred / needs-human queue and clear
-   what the current scope covers, or explicitly re-defer, marking the
-   source item; decided
-   invariants shouldn't live only as devlog archaeology.
-7. Push, open the PR with the template, and remove sections that do not apply.
-8. Hand off per "Handing off the PR" (under Pull requests): start the
-   review-watch, wait out required checks, handle reviewer activity,
-   self-review the PR files view, and leave the PR open for a human to
-   review and merge.
+6. Push, open the PR with the template, and remove sections that do not apply.
+7. Hand off per "Handing off the PR" (under Pull requests): start the
+   review-watch, complete the base-freshness pass, wait out required checks,
+   handle reviewer activity, self-review the PR files view, and leave the PR
+   open for a human to review and merge.
 
 For changes on a **destructive path** (delete/cleanup), a
 **credential-leak surface**, or a **returned-object-trust boundary**
 (trusting fields of a value handed back by an external call or
 deserializer), add a refute-first verification pass before committing
-(independent lenses whose job is to _disprove_ the fix) and record in
-the devlog which findings were confirmed, rejected-by-verification (so
-they're not re-raised), and accepted-by-decision. For a
+(independent lenses whose job is to _disprove_ the fix) and record
+which findings were confirmed, rejected-by-verification (so they're
+not re-raised), and accepted-by-decision: in the work unit's decision
+note where the project keeps one, otherwise in the PR or issue. For a
 behavior-preserving refactor on one of these paths, where the platform
 can execute code, have a lens reconstruct the
 old implementation (`git show <base>:<file>`) and compare old against new
@@ -94,8 +123,9 @@ classes; a docs typo or a refactor off these paths shouldn't trigger it.
 
 The working context is finite, and everything held in it is re-sent
 with every later tool call, so transient bulk pulled in early taxes
-every step after it. Durable state belongs in files (the devlog entry,
-the PR body); keep the working context to what the current step needs.
+every step after it. Durable state belongs in files (the PR body, the
+issue, a decision note where the project keeps one); keep the working
+context to what the current step needs.
 
 - **Keep raw bulk out.** Prefer targeted, bounded reads and searches
   (a file region, a match list, a filtered log tail) over whole-file
@@ -117,12 +147,12 @@ the PR body); keep the working context to what the current step needs.
   normal. Parallel multi-agent fan-outs multiply cost invisibly;
   before launching one, state the expected scale and proceed with the
   user's go-ahead or within a budget they already set.
-- **Prefer a fresh session over a bloated one.** The devlog entry and
-  the PR body carry the durable state, so at a natural boundary (a PR
-  handed off, a review round closed, a new work unit) in a long
-  session, suggest continuing in a fresh session seeded with the PR
-  number and the entry rather than pushing on; the accumulated context
-  adds little to the next unit and dominates its cost.
+- **Prefer a fresh session over a bloated one.** The PR body (plus a
+  decision note when one exists) carries the durable state, so at a
+  natural boundary (a PR handed off, a review round closed, a new work
+  unit) in a long session, suggest continuing in a fresh session
+  seeded with the PR number rather than pushing on; the accumulated
+  context adds little to the next unit and dominates its cost.
 
 <!-- /agents-md:managed:context -->
 
@@ -158,6 +188,9 @@ Intended npm scripts (single command each, runnable in CI):
   merges; keep them green and don't remove the gate. Branch protection on
   `main` enforces this: a PR with the `check` job green is required to merge,
   admin-enforced (no direct pushes to `main`, even for the owner).
+  Deliberately deferred: an OS matrix (macOS/Windows), revisit when a
+  platform-specific bug shows; a coverage-threshold gate, revisit when
+  baseline coverage numbers exist.
 - **The `check` job is a fail-closed fan-in gate; keep its name and shape.**
   Branch protection requires the context named `check`, so the matrix reports
   through a fan-in job that keeps that exact name. Its `if: always()` plus the
@@ -374,6 +407,8 @@ enforced. Violating one is a security regression, not a style nit.
   need a user-added `autoMode.allow` entry (snippet and constraints in the
   README section); in testing the agent couldn't write it from inside auto
   mode, and a repo's checked-in `.claude/settings.json` can't carry it.
+  Revisit when field data shows another host's auto/approval mode needs an
+  equivalent documented path.
 - **Never attach a release asset whose name ends in a platform `<os>-<arch>`
   suffix** (`*-darwin-amd64`, `*-linux-amd64`, `*-windows-amd64.exe`, …), and
   that's _any_ asset, not just a `gh-imgup-<os>-<arch>` binary. The `gh`
@@ -412,8 +447,10 @@ enforced. Violating one is a security regression, not a style nit.
 - **Verify risky changes adversarially.** Before committing a change on a
   destructive path (`--cleanup`), a credential-leak surface, or a spot that
   trusts a response-derived value, run an independent refute-first review and
-  record in the devlog which findings were confirmed, rejected-by-verification,
-  or accepted-by-decision. Scope this to those risk classes, not every change.
+  record which findings were confirmed, rejected-by-verification, or
+  accepted-by-decision: in the work unit's decision note when the change
+  carries a decision on the mandatory-note list, otherwise in the PR.
+  Scope this to those risk classes, not every change.
 - **Docs are audited against the code.** README/SECURITY/CHANGELOG claims
   (counts, flags, behaviors, the subprocess/network guarantees) are checked
   against `src/`, scoped to the surface they describe (the compiled CLI and
@@ -436,23 +473,19 @@ enforced. Violating one is a security regression, not a style nit.
   injectable params with production defaults; tests script a fake transport
   *through* the real `authedFetch` and use real temp files for SHA-256. Chosen
   over module-mocking because ESM named imports are read-only bindings.
-- **Drain devlog "to promote" notes before a docs/chore PR.** `grep` the
-  devlog for the open `promote` / `deferred` / `needs human` queue and either
-  promote what the PR's scope covers or explicitly re-defer; invariant notes
-  must not pile up unpromoted (they did, across nine entries, before this
-  cleanup). File maintainer-only actions as issues (`Refs #N`), not as devlog
-  headings that the start-of-session read won't resurface.
 
 <!-- agents-md:managed:branches -->
 
 ## Branches
 
-All work lands through a PR: branch from `main` (read `main` as the
-repo's default branch throughout), do the work as atomic commits (see
-Commits), open a PR; the work merges with a real merge commit, a
-human's call per the finish line. Never commit directly to `main`. No
-triviality exception: every bypass erodes the `--first-parent`
-narrative.
+All work lands through a PR. Resolve and freshly update the repository's
+default branch (`main` below), then create each ordinary work-unit branch
+explicitly from that tip. Never create an ordinary branch from the currently
+checked-out feature branch; a non-default starting point is allowed only for
+an intentionally declared stacked PR. Do the work as atomic commits (see
+Commits), then open a PR; the work merges with a real merge commit, a human's
+call per the finish line. Never commit directly to `main`. No triviality
+exception: every bypass erodes the `--first-parent` narrative.
 
 Name branches `<type>/<short-kebab-slug>`: type from the Conventional
 Commits vocabulary (`feat`, `fix`, `refactor`, `docs`, `chore`), slug
@@ -471,17 +504,24 @@ agents start pushing in parallel. Merged branches auto-delete where
 that repo setting is on (delete them after merge where it isn't); the
 merge commit carries the narrative.
 
-**Prefer a dedicated worktree per work unit.** Where your platform and
-session support working from a second checkout (a native worktree tool
-or session flag, or plain
-`git worktree add <path> -b <type>/<slug> <base>`), do the work in a
-dedicated worktree instead of the shared primary checkout, so parallel
-agent sessions and the user's own work never collide on files, branch
-state, or uncommitted changes. Remove the worktree once its branch
-merges (`git worktree remove <path>`). Where they don't (no
-multi-checkout support, or a sandbox pinned to one directory), fall
-back to a branch in the primary checkout; the branch discipline above
-still applies either way.
+**Break down concurrency before isolating it.** Keep coupled work in one work
+unit, an explicit dependency chain, or an intentionally declared stack; a
+worktree separates checkouts but cannot make logically dependent work safe in
+parallel. Before substantive work, an assigned concurrent unit uses the
+project's forge-visible claim mechanism, when one is defined. The claim
+advertises active occupancy, not authorization; its form is project-specific.
+
+**Isolate concurrent work units.** Concurrent work units must use separate
+worktrees or checkouts. Where your platform and session support a second
+checkout (a native worktree tool or session flag, or plain
+`git worktree add <path> -b <type>/<slug> <default-branch>`), create each
+worktree explicitly from the freshly updated default-branch tip, not from
+whatever branch is checked out; prefer the same isolation for a single work
+unit. Remove the worktree once its branch merges
+(`git worktree remove <path>`). Where isolated checkouts are unavailable
+(no multi-checkout support, or a sandbox pinned to one directory), serialize
+the work units and use one correctly based branch at a time in the primary
+checkout. Never run concurrent work units in one checkout.
 
 Follow-up work that depends on an open PR can stack on its branch instead
 of waiting; see the Stacked PRs pattern under Pull requests.
@@ -506,7 +546,7 @@ arc.
 - **Body**: scaffolded by the repo's PR template (on GitHub:
   `.github/pull_request_template.md`):
   - **Why**: prose, one to three short sentences. State the problem or
-    motivation. Link the devlog entry when one exists; don't duplicate it.
+    motivation. Link the decision note when one exists; don't duplicate it.
     Where the template's comment spells out issue keywords, follow it
     exactly: a close keyword per issue the PR fully resolves, a plain
     `Refs #N` for related-but-unfinished issues that are left for a
@@ -517,7 +557,7 @@ arc.
     subject, not its SHA: folding a review fix into its commit (see
     Commits) rewrites every downstream SHA, so a SHA-keyed map forces a
     body rewrite each round, while subjects don't go stale. Say rejected
-    alternatives live in the devlog when they do.
+    alternatives live in the decision note when they do.
   - **Screenshots**: required for PRs with visible UI changes; delete it
     for non-visual work. Replace the section with actual forge-hosted,
     reviewer-visible image or recording attachments before handing off,
@@ -545,6 +585,10 @@ arc.
   scope creep, and accidental files the editor hid. This is a
   _mechanical-hygiene_ pass; it does **not** substitute for substantive
   critique.
+- **Integration evidence belongs to one base commit.** CI results, a
+  full-diff self-review, and a ready-for-handoff claim are valid only for the
+  base commit they were checked against. A base-branch change invalidates all
+  three, even when the earlier PR diff looked clean.
 - **Substantive critique needs fresh, ideally non-self eyes.** Same-context
   self-review shares the blind spots that produced the code. Independence
   ladder, weakest to strongest: self-in-context < same-model fresh-context
@@ -651,6 +695,14 @@ no new review activity outstanding. Once the PR is up:
   activity after that event is in-scope and must be handled, never absorbed
   into the baseline as already-seen. On a new push, advance or replace the
   baseline rather than leaving duplicate watchers running.
+- **Validate against the current base before final handoff.** Resolve the
+  current base tip, update the PR branch using the project's merge or rebase
+  convention, rerun the relevant verification, and self-review the complete
+  refreshed diff. Record the base commit used for that final validation in
+  the PR's Verification section or the handoff. If the base advances again
+  after handoff but before merge, the PR is stale and needs another
+  integration pass. If you do not own the branch or lack permission to
+  update it, report the stale state instead of silently rewriting it.
 - **Wait for required checks**: poll them until they complete (on
   GitHub: `gh pr checks <n>`); fix any red check on the branch, never
   hand off a known-red PR.
@@ -694,9 +746,11 @@ are the conventions for the comments the pass produces.
   question. Mark uncertainty as uncertainty ("possible:"), never assert it;
   the Verification facts-only discipline applies to review too.
 - **Review against intent, not just the diff.** Read the PR's Why/What and
-  the devlog; check the change does what it claims, that Verification matches
-  reality, and that docs/tests moved with behavior. Don't relitigate what the
-  devlog marks decided or deferred.
+  any linked decision note; check the change does what it claims, that
+  Verification matches reality, and that docs/tests moved with behavior.
+  Recorded decisions are evidence, not prohibitions: don't silently
+  overturn an explicit owner decision; if the diff conflicts with one,
+  name the decision and which assumption or condition changed.
 - **Stay in scope.** Out-of-scope improvements are non-blocking nits or a
   follow-up issue, not merge-blockers; don't grow the PR through review.
 - **Scale depth to risk.** Routine PRs get a normal pass; destructive /
@@ -708,13 +762,15 @@ are the conventions for the comments the pass produces.
 
 ### Stacked PRs
 
-Dependent docs or cleanup work can proceed without waiting for its base: a
-follow-up PR can be based on an open PR's branch (on GitHub:
-`gh pr create --base <feature-branch>`, which auto-retargets to `main`
-when the base merges; on other forges retarget it manually). Two
-gotchas: while the base is open the stacked PR's diff shows only its
-own commits; and if the base is force-pushed (the fold-review-fixes
-rule in Commits), `rebase --onto` the stack onto the new base tip.
+Dependent docs or cleanup work can proceed without waiting for its base as an
+intentionally declared stacked PR. A non-default base is an explicit
+dependency: name the open PR's branch when creating both the follow-up branch
+or worktree and the PR, never inherit it from the current checkout. On GitHub,
+use `gh pr create --base <feature-branch>`; it auto-retargets to `main` when
+the base merges, while other forges may require manual retargeting. Two
+gotchas: while the base is open the stacked PR's diff shows only its own
+commits; and if the base is force-pushed (the fold-review-fixes rule in
+Commits), `rebase --onto` the stack onto the new base tip.
 
 <!-- /agents-md:managed:pull-requests -->
 
@@ -731,7 +787,7 @@ log tells the project's evolution). Rules:
   commit; split it. Each commit must build and pass tests on its own;
   never leave red intermediate states (it breaks bisect).
 - **Body says why, not just what.** Write dense, specific bodies,
-  wrapped ≤ 72 columns. Reference the session's devlog entry
+  wrapped ≤ 72 columns. Reference the work unit's decision note
   when one exists. State change deltas ("27 → 36 tests") if meaningful;
   never absolute status ("36 tests green"); CI asserts that, and it
   goes stale.
@@ -748,8 +804,8 @@ log tells the project's evolution). Rules:
   Guardrails: every commit still builds and passes tests after the fold;
   `--force-with-lease`, **feature branch only, never force-push `main`**;
   only while the PR is unmerged (once merged, a fix is a new commit);
-  update the matching devlog entry in the same operation. The mechanism
-  (reset/amend/rebase) is your judgement.
+  update the matching decision note, when one exists, in the same
+  operation. The mechanism (reset/amend/rebase) is your judgement.
 - **Never squash-merge multi-commit work**: it destroys the atomic
   structure above. Merge with a real merge commit so
   `git log --first-parent` reads as the work-unit narrative and the full
