@@ -188,6 +188,9 @@ Intended npm scripts (single command each, runnable in CI):
   merges; keep them green and don't remove the gate. Branch protection on
   `main` enforces this: a PR with the `check` job green is required to merge,
   admin-enforced (no direct pushes to `main`, even for the owner).
+  Deliberately deferred: an OS matrix (macOS/Windows), revisit when a
+  platform-specific bug shows; a coverage-threshold gate, revisit when
+  baseline coverage numbers exist.
 - **The `check` job is a fail-closed fan-in gate; keep its name and shape.**
   Branch protection requires the context named `check`, so the matrix reports
   through a fan-in job that keeps that exact name. Its `if: always()` plus the
@@ -404,6 +407,8 @@ enforced. Violating one is a security regression, not a style nit.
   need a user-added `autoMode.allow` entry (snippet and constraints in the
   README section); in testing the agent couldn't write it from inside auto
   mode, and a repo's checked-in `.claude/settings.json` can't carry it.
+  Revisit when field data shows another host's auto/approval mode needs an
+  equivalent documented path.
 - **Never attach a release asset whose name ends in a platform `<os>-<arch>`
   suffix** (`*-darwin-amd64`, `*-linux-amd64`, `*-windows-amd64.exe`, …), and
   that's _any_ asset, not just a `gh-imgup-<os>-<arch>` binary. The `gh`
@@ -442,8 +447,10 @@ enforced. Violating one is a security regression, not a style nit.
 - **Verify risky changes adversarially.** Before committing a change on a
   destructive path (`--cleanup`), a credential-leak surface, or a spot that
   trusts a response-derived value, run an independent refute-first review and
-  record in the devlog which findings were confirmed, rejected-by-verification,
-  or accepted-by-decision. Scope this to those risk classes, not every change.
+  record which findings were confirmed, rejected-by-verification, or
+  accepted-by-decision: in the work unit's decision note when the change
+  carries a decision on the mandatory-note list, otherwise in the PR.
+  Scope this to those risk classes, not every change.
 - **Docs are audited against the code.** README/SECURITY/CHANGELOG claims
   (counts, flags, behaviors, the subprocess/network guarantees) are checked
   against `src/`, scoped to the surface they describe (the compiled CLI and
@@ -466,12 +473,6 @@ enforced. Violating one is a security regression, not a style nit.
   injectable params with production defaults; tests script a fake transport
   *through* the real `authedFetch` and use real temp files for SHA-256. Chosen
   over module-mocking because ESM named imports are read-only bindings.
-- **Drain devlog "to promote" notes before a docs/chore PR.** `grep` the
-  devlog for the open `promote` / `deferred` / `needs human` queue and either
-  promote what the PR's scope covers or explicitly re-defer; invariant notes
-  must not pile up unpromoted (they did, across nine entries, before this
-  cleanup). File maintainer-only actions as issues (`Refs #N`), not as devlog
-  headings that the start-of-session read won't resurface.
 
 <!-- agents-md:managed:branches -->
 
