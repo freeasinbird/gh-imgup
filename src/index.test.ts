@@ -105,6 +105,57 @@ test("--version prints the package version to stdout", async () => {
   assert.equal(r.stdout.trim(), version());
 });
 
+test("--version fails cleanly when the manifest is missing or unreadable", async () => {
+  const failures: Array<() => never> = [
+    () => {
+      throw Object.assign(new Error("ENOENT: no such file or directory"), {
+        code: "ENOENT",
+      });
+    },
+    () => {
+      throw Object.assign(new Error("EACCES: permission denied"), {
+        code: "EACCES",
+      });
+    },
+  ];
+  for (const readManifest of failures) {
+    const r = await run(["--version"], { readManifest });
+    assert.equal(r.exitCode, 1);
+    assert.equal(r.stdout, "");
+    assert.equal(r.stderr.split("\n").filter(Boolean).length, 1);
+    assert.match(r.stderr, /^gh-imgup: .*manifest/i);
+  }
+});
+
+test("--version fails cleanly on malformed JSON, without leaking the manifest", async () => {
+  // The raw manifest text embeds a token-shaped string; the error must not echo
+  // it (or any other manifest content) back to stderr.
+  const raw = `{"version": "1.0.0", "secretField": "${TOKEN}"`;
+  const r = await run(["--version"], { readManifest: () => raw });
+  assert.equal(r.exitCode, 1);
+  assert.equal(r.stdout, "");
+  assert.equal(r.stderr.split("\n").filter(Boolean).length, 1);
+  assert.match(r.stderr, /^gh-imgup: .*manifest/i);
+  assert.doesNotMatch(r.stderr, new RegExp(TOKEN));
+  assert.doesNotMatch(r.stderr, /secretField/);
+});
+
+test("--version fails cleanly when the manifest's version field is missing or not a non-empty string", async () => {
+  const manifests = [
+    "{}",
+    `{"version": null}`,
+    `{"version": 123}`,
+    `{"version": ""}`,
+  ];
+  for (const raw of manifests) {
+    const r = await run(["--version"], { readManifest: () => raw });
+    assert.equal(r.exitCode, 1);
+    assert.equal(r.stdout, "");
+    assert.equal(r.stderr.split("\n").filter(Boolean).length, 1);
+    assert.match(r.stderr, /^gh-imgup: .*version/i);
+  }
+});
+
 test("--help prints usage to stdout", async () => {
   const r = await run(["--help"]);
   assert.equal(r.exitCode, 0);

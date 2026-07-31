@@ -76,6 +76,8 @@ export interface RunDeps {
   isTTY?: boolean;
   /** Confirm callback for the --cleanup delete prompt. */
   confirm?: (question: string) => Promise<boolean>;
+  /** Package manifest reader for --version (real fs read in production). */
+  readManifest?: ManifestReader;
 }
 
 /** The flags and positional files parsed from argv. */
@@ -94,15 +96,44 @@ interface ParsedArgs {
   version: boolean;
 }
 
-/** Read the package version from the manifest one directory above this module. */
-export function version(): string {
+/** Injectable manifest reader for {@link version} (real fs read in production). */
+export type ManifestReader = (path: string) => string;
+
+/**
+ * Read the package version from the manifest one directory above this
+ * module. Each failure mode (unreadable file, malformed JSON, missing/
+ * invalid `version` field) throws a short, actionable message that never
+ * echoes the manifest's raw contents.
+ */
+export function version(
+  readManifest: ManifestReader = (p) => readFileSync(p, "utf8"),
+): string {
   const pkgPath = join(
     dirname(fileURLToPath(import.meta.url)),
     "..",
     "package.json",
   );
-  const pkg = JSON.parse(readFileSync(pkgPath, "utf8")) as { version: string };
-  return pkg.version;
+  let raw: string;
+  try {
+    raw = readManifest(pkgPath);
+  } catch {
+    throw new Error(
+      "Could not read the package manifest to determine the version.",
+    );
+  }
+  let pkg: unknown;
+  try {
+    pkg = JSON.parse(raw);
+  } catch {
+    throw new Error(
+      "Could not parse the package manifest to determine the version.",
+    );
+  }
+  const value = (pkg as { version?: unknown } | null)?.version;
+  if (typeof value !== "string" || value.length === 0) {
+    throw new Error("The package manifest has no valid version field.");
+  }
+  return value;
 }
 
 /**
@@ -268,7 +299,11 @@ export async function run(
     const args = parseArgs(argv);
     if (args.help) return { stdout: HELP, stderr: "", exitCode: 0 };
     if (args.version)
-      return { stdout: `${version()}\n`, stderr: "", exitCode: 0 };
+      return {
+        stdout: `${version(deps.readManifest)}\n`,
+        stderr: "",
+        exitCode: 0,
+      };
     if (args.cleanup) {
       // --cleanup is a destructive, standalone mode exposed as a flag on the
       // upload command. Reject any upload-only input rather than silently
