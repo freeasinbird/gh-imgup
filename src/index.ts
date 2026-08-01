@@ -7,6 +7,7 @@ import { decodesToToken } from "./apierr.js";
 import { BROAD_SCOPE_WARNING, resolveToken, sanitize } from "./auth.js";
 import { cleanup } from "./cleanup.js";
 import { postComment } from "./github.js";
+import { collapseControls } from "./markdown.js";
 import { ensureRelease, uploadAsset } from "./release.js";
 import { type OutputFormat, render, type UploadResult } from "./upload.js";
 import {
@@ -76,6 +77,8 @@ export interface RunDeps {
   isTTY?: boolean;
   /** Confirm callback for the --cleanup delete prompt. */
   confirm?: (question: string) => Promise<boolean>;
+  /** Package-manifest reader for --version (real fs read in production). */
+  readManifest?: () => string;
 }
 
 /** The flags and positional files parsed from argv. */
@@ -94,15 +97,60 @@ interface ParsedArgs {
   version: boolean;
 }
 
-/** Read the package version from the manifest one directory above this module. */
-export function version(): string {
+/** Injectable dependencies for {@link version} (real fs read in production). */
+export interface VersionDeps {
+  /** Read the raw package.json manifest text. */
+  readManifest?: () => string;
+}
+
+/** Read package.json (one directory above this module) as raw text. */
+function defaultReadManifest(): string {
   const pkgPath = join(
     dirname(fileURLToPath(import.meta.url)),
     "..",
     "package.json",
   );
-  const pkg = JSON.parse(readFileSync(pkgPath, "utf8")) as { version: string };
-  return pkg.version;
+  return readFileSync(pkgPath, "utf8");
+}
+
+/**
+ * Read the package version from the manifest. Every failure mode (missing/
+ * unreadable file, malformed JSON, or a missing/non-string/blank/control-
+ * containing `version` field) throws a single-line, actionable error — never
+ * the raw manifest text or a multiline parser dump, per the CLI's output
+ * contract (invariant 7: stderr carries only human-readable text, one line
+ * here).
+ */
+export function version(deps: VersionDeps = {}): string {
+  const readManifest = deps.readManifest ?? defaultReadManifest;
+  let raw: string;
+  try {
+    raw = readManifest();
+  } catch {
+    throw new Error(
+      "Could not read package.json to determine the version. Reinstall gh-imgup.",
+    );
+  }
+  let pkg: unknown;
+  try {
+    pkg = JSON.parse(raw);
+  } catch {
+    throw new Error(
+      "package.json is not valid JSON; could not determine the version. " +
+        "Reinstall gh-imgup.",
+    );
+  }
+  const v =
+    pkg !== null && typeof pkg === "object" && "version" in pkg
+      ? (pkg as { version: unknown }).version
+      : undefined;
+  if (typeof v !== "string" || v.trim() === "" || collapseControls(v) !== v) {
+    throw new Error(
+      'package.json has no valid "version" field; could not determine ' +
+        "the version. Reinstall gh-imgup.",
+    );
+  }
+  return v;
 }
 
 /**
@@ -268,7 +316,11 @@ export async function run(
     const args = parseArgs(argv);
     if (args.help) return { stdout: HELP, stderr: "", exitCode: 0 };
     if (args.version)
-      return { stdout: `${version()}\n`, stderr: "", exitCode: 0 };
+      return {
+        stdout: `${version({ readManifest: deps.readManifest })}\n`,
+        stderr: "",
+        exitCode: 0,
+      };
     if (args.cleanup) {
       // --cleanup is a destructive, standalone mode exposed as a flag on the
       // upload command. Reject any upload-only input rather than silently

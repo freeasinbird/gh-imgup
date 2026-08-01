@@ -102,7 +102,71 @@ test("--version prints the package version to stdout", async () => {
   const r = await run(["--version"]);
   assert.equal(r.exitCode, 0);
   assert.equal(r.stderr, "");
-  assert.equal(r.stdout.trim(), version());
+  assert.equal(r.stdout, `${version()}\n`);
+});
+
+test("--version fails clearly on manifest read/parse/shape failures", async () => {
+  const secret = "SECRET_MANIFEST_TEXT_SHOULD_NOT_LEAK";
+  const cases: Array<[string, () => string]> = [
+    [
+      "missing/unreadable manifest",
+      () => {
+        throw new Error(
+          `ENOENT: no such file, open '/x/${secret}/package.json'`,
+        );
+      },
+    ],
+    ["malformed JSON", () => `{ not: json, ${secret}`],
+    ["version field absent", () => JSON.stringify({ name: `${secret}` })],
+    [
+      "version field not a string",
+      () => JSON.stringify({ version: 123, marker: secret }),
+    ],
+    [
+      "version field empty",
+      () => JSON.stringify({ version: "", marker: secret }),
+    ],
+    [
+      "version field whitespace-only",
+      () => JSON.stringify({ version: "   ", marker: secret }),
+    ],
+    [
+      "version field contains a C0 control",
+      () => JSON.stringify({ version: "0.1.3\nforged", marker: secret }),
+    ],
+    [
+      "version field contains DEL",
+      () =>
+        JSON.stringify({
+          version: `0.1.3${String.fromCodePoint(0x7f)}forged`,
+          marker: secret,
+        }),
+    ],
+    [
+      "version field contains a C1 control",
+      () =>
+        JSON.stringify({
+          version: `0.1.3${String.fromCodePoint(0x85)}forged`,
+          marker: secret,
+        }),
+    ],
+    [
+      "version field contains a line separator",
+      () =>
+        JSON.stringify({
+          version: `0.1.3${String.fromCodePoint(0x2028)}forged`,
+          marker: secret,
+        }),
+    ],
+  ];
+  for (const [label, readManifest] of cases) {
+    const r = await run(["--version"], { readManifest });
+    assert.equal(r.exitCode, 1, label);
+    assert.equal(r.stdout, "", label);
+    assert.equal(r.stderr.split("\n").filter(Boolean).length, 1, label);
+    assert.match(r.stderr, /^gh-imgup: .+\.\n$/, label);
+    assert.doesNotMatch(r.stderr, new RegExp(secret), label);
+  }
 });
 
 test("--help prints usage to stdout", async () => {
