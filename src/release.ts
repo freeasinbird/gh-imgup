@@ -3,6 +3,7 @@ import { readFileSync, statSync } from "node:fs";
 import { basename, extname } from "node:path";
 import { apiError, decodesToToken, redactBody, redactField } from "./apierr.js";
 import { API, authedFetch, repoPath, sanitize, UPLOADS } from "./auth.js";
+import { apiIoDefaults } from "./deps.js";
 import { collapseControls, renderInlineMarkdown } from "./markdown.js";
 import type { UploadResult } from "./upload.js";
 import type { ImageFile, Repo } from "./validate.js";
@@ -19,20 +20,6 @@ const RELEASE_BODY =
 export interface ReleaseDeps {
   fetchImpl?: typeof fetch;
   warn?: (message: string) => void;
-}
-
-function depsOf(deps: ReleaseDeps): {
-  fetchImpl: typeof fetch;
-  warn: (m: string) => void;
-} {
-  return {
-    fetchImpl: deps.fetchImpl ?? fetch,
-    warn:
-      deps.warn ??
-      ((m) => {
-        process.stderr.write(m);
-      }),
-  };
 }
 
 /** True when a 422 create-release body reports the tag already exists (the race path). */
@@ -120,7 +107,7 @@ export async function ensureRelease(
   tag: string,
   deps: ReleaseDeps = {},
 ): Promise<number> {
-  const { fetchImpl } = depsOf(deps);
+  const { fetchImpl } = apiIoDefaults(deps);
   refuseTokenBearingTag(token, tag);
   const tagUrl = `${API}/repos/${repoPath(repo)}/releases/tags/${encodeURIComponent(tag)}`;
 
@@ -260,7 +247,7 @@ async function bestEffortDelete(
   context: string,
   deps: ReleaseDeps,
 ): Promise<void> {
-  const { warn } = depsOf(deps);
+  const { warn } = apiIoDefaults(deps);
   try {
     await deleteAsset(token, repo, assetId, deps);
   } catch (err) {
@@ -298,7 +285,7 @@ async function verifiedDelete(
   context: string,
   deps: ReleaseDeps,
 ): Promise<void> {
-  const { fetchImpl, warn } = depsOf(deps);
+  const { fetchImpl, warn } = apiIoDefaults(deps);
   const orphanWarn = () =>
     warn(
       sanitize(
@@ -347,7 +334,7 @@ export async function uploadAsset(
   file: ImageFile,
   deps: ReleaseDeps = {},
 ): Promise<UploadResult> {
-  const { fetchImpl, warn } = depsOf(deps);
+  const { fetchImpl, warn } = apiIoDefaults(deps);
   // Redact the literal token from the name, then reject if ANY encoded token
   // survives (mixed literal+encoded, or encoded-only) — sanitize can't strip
   // encoded forms, and they'd otherwise reach the public asset name or error
@@ -636,7 +623,7 @@ export async function deleteAsset(
   assetId: number,
   deps: ReleaseDeps = {},
 ): Promise<void> {
-  const { fetchImpl } = depsOf(deps);
+  const { fetchImpl } = apiIoDefaults(deps);
   const res = await authedFetch(
     token,
     `${API}/repos/${repoPath(repo)}/releases/assets/${assetId}`,

@@ -1,6 +1,7 @@
 import { createInterface } from "node:readline/promises";
 import { apiError, redactField } from "./apierr.js";
 import { API, authedFetch, repoPath, sanitize } from "./auth.js";
+import { apiIoDefaults } from "./deps.js";
 import { renderInlineMarkdown } from "./markdown.js";
 import { deleteAsset, isUsableAssetUrl, releaseId } from "./release.js";
 import type { Repo } from "./validate.js";
@@ -44,12 +45,7 @@ function depsOf(deps: CleanupDeps): {
   confirm: (q: string) => Promise<boolean>;
 } {
   return {
-    fetchImpl: deps.fetchImpl ?? fetch,
-    warn:
-      deps.warn ??
-      ((m) => {
-        process.stderr.write(m);
-      }),
+    ...apiIoDefaults(deps),
     isTTY: deps.isTTY ?? Boolean(process.stdin.isTTY),
     confirm: deps.confirm ?? defaultConfirm,
   };
