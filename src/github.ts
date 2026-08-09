@@ -1,5 +1,6 @@
 import { apiError, decodesToToken } from "./apierr.js";
 import { API, authedFetch, repoPath, sanitize } from "./auth.js";
+import { apiIoDefaults } from "./deps.js";
 import { renderInlineMarkdown } from "./markdown.js";
 import type { Repo } from "./validate.js";
 import { boundGithubUrl } from "./validate.js";
@@ -8,20 +9,6 @@ import { boundGithubUrl } from "./validate.js";
 export interface GithubDeps {
   fetchImpl?: typeof fetch;
   warn?: (message: string) => void;
-}
-
-function depsOf(deps: GithubDeps): {
-  fetchImpl: typeof fetch;
-  warn: (m: string) => void;
-} {
-  return {
-    fetchImpl: deps.fetchImpl ?? fetch,
-    warn:
-      deps.warn ??
-      ((m) => {
-        process.stderr.write(m);
-      }),
-  };
 }
 
 /** Outcome of posting a comment. */
@@ -86,7 +73,7 @@ export async function postComment(
   body: string,
   deps: GithubDeps = {},
 ): Promise<CommentResult> {
-  const { fetchImpl, warn } = depsOf(deps);
+  const { fetchImpl, warn } = apiIoDefaults(deps);
   // A comment renders as Markdown on a PUBLIC surface, so refuse if the body
   // would contain the token either as raw text / any escape (decodesToToken) or
   // after GitHub renders it — decoding its HTML/Markdown character references
