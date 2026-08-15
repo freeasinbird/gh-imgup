@@ -1,39 +1,11 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { postComment } from "./github.js";
+import { json, scriptedFetch } from "./test-support.test.js";
 import type { Repo } from "./validate.js";
 
 const REPO: Repo = { owner: "o", name: "r" };
 const TOKEN = "ghp_TOK";
-
-interface FakeCall {
-  url: string;
-  method: string;
-  init: RequestInit;
-}
-
-/** A fetch stand-in driven by a per-call handler; records every request. */
-function scriptedFetch(
-  handler: (req: FakeCall) => Response | Promise<Response>,
-) {
-  const calls: FakeCall[] = [];
-  const impl = ((url: string | URL, init: RequestInit = {}) => {
-    const req: FakeCall = {
-      url: String(url),
-      method: init.method ?? "GET",
-      init,
-    };
-    calls.push(req);
-    return Promise.resolve(handler(req));
-  }) as unknown as typeof fetch;
-  return { impl, calls };
-}
-
-const json = (body: unknown, status: number) =>
-  new Response(JSON.stringify(body), {
-    status,
-    headers: { "Content-Type": "application/json" },
-  });
 
 const commentUrl = (n: number) =>
   `https://github.com/o/r/issues/${n}#issuecomment-1`;
