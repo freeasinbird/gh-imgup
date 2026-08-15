@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { cleanup, rawNextLink } from "./cleanup.js";
+import { json, scriptedFetch } from "./test-support.test.js";
 import type { Repo } from "./validate.js";
 
 const REPO: Repo = { owner: "o", name: "r" };
@@ -17,29 +18,6 @@ const asset = (id: number, name: string): Asset => ({
   name,
   url: `https://github.com/o/r/releases/download/_gh-imgup/${name}`,
 });
-
-interface FakeCall {
-  url: string;
-  method: string;
-}
-function scriptedFetch(handler: (req: FakeCall) => Response) {
-  const calls: FakeCall[] = [];
-  const impl = ((url: string | URL, init: RequestInit = {}) => {
-    const req = { url: String(url), method: init.method ?? "GET" };
-    calls.push(req);
-    return Promise.resolve(handler(req));
-  }) as unknown as typeof fetch;
-  return { impl, calls };
-}
-const json = (
-  body: unknown,
-  status: number,
-  headers: Record<string, string> = {},
-) =>
-  new Response(JSON.stringify(body), {
-    status,
-    headers: { "Content-Type": "application/json", ...headers },
-  });
 
 interface ApiOpts {
   release?: "missing";

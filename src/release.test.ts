@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { after, test } from "node:test";
 import { deleteAsset, ensureRelease, uploadAsset } from "./release.js";
+import { type FakeCall, json, scriptedFetch } from "./test-support.test.js";
 import type { ImageFile, Repo } from "./validate.js";
 
 const REPO: Repo = { owner: "o", name: "r" };
@@ -15,35 +16,6 @@ const TOKEN = "ghp_TOK";
 const ASSET_URL =
   "https://github.com/o/r/releases/download/_gh-imgup/x-a1b2c3d4.png";
 const TAG = "_gh-imgup";
-
-interface FakeCall {
-  url: string;
-  method: string;
-  init: RequestInit;
-}
-
-/** A fetch stand-in driven by a per-call handler; records every request. */
-function scriptedFetch(
-  handler: (req: FakeCall, index: number) => Response | Promise<Response>,
-) {
-  const calls: FakeCall[] = [];
-  const impl = ((url: string | URL, init: RequestInit = {}) => {
-    const req: FakeCall = {
-      url: String(url),
-      method: init.method ?? "GET",
-      init,
-    };
-    calls.push(req);
-    return Promise.resolve(handler(req, calls.length - 1));
-  }) as unknown as typeof fetch;
-  return { impl, calls };
-}
-
-const json = (body: unknown, status: number) =>
-  new Response(JSON.stringify(body), {
-    status,
-    headers: { "Content-Type": "application/json" },
-  });
 
 /**
  * A realistic 201 upload response: GitHub derives the asset URL from the name we
@@ -381,7 +353,10 @@ test("uploadAsset rejects a 201 whose body lacks an id or download URL", async (
   const missingUrl = scriptedFetch(() => json({ id: 5 }, 201));
   await assert.rejects(
     () =>
-      uploadAsset(TOKEN, REPO, 42, TAG, file, { fetchImpl: missingUrl.impl }),
+      uploadAsset(TOKEN, REPO, 42, TAG, file, {
+        fetchImpl: missingUrl.impl,
+        warn: () => {},
+      }),
     /returned an unexpected response/,
   );
   // 201 but no id — needed for mismatch cleanup — must also fail.
@@ -421,7 +396,11 @@ test("uploadAsset rejects a download URL that isn't a usable github.com asset UR
       json({ id: 5, browser_download_url: url }, 201),
     );
     await assert.rejects(
-      () => uploadAsset(TOKEN, REPO, 42, TAG, file, { fetchImpl: impl }),
+      () =>
+        uploadAsset(TOKEN, REPO, 42, TAG, file, {
+          fetchImpl: impl,
+          warn: () => {},
+        }),
       /unexpected response/,
       `url=${JSON.stringify(url)}`,
     );
