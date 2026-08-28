@@ -103,7 +103,7 @@ npx -y @freeasinbird/gh-imgup chart.png --json
 | --- | --- |
 | `--repo <owner/repo>` | Target repo (default: inferred from git `origin`) |
 | `--pr <n>` / `--issue <n>` | Post a follow-up comment embedding the image(s) on that PR/issue |
-| `-m, --message <text>` | Caption included in the posted comment |
+| `-m, --message <text>` | Plain-text caption for the posted comment |
 | `--json` / `--raw` | Machine output: JSON, or bare URL(s) (default: Markdown) |
 | `--tag <name>` | Release tag (default `_gh-imgup`; must start with `_`) |
 | `--max-size <MB>` | Max file size (default 25) |

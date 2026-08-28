@@ -395,7 +395,7 @@ Options:
   --repo <owner/repo>   Target repository (default: inferred from git remote)
   --pr <number>         Comment on a pull request
   --issue <number>      Comment on an issue
-  -m, --message <text>  Caption to include in a posted comment
+  -m, --message <text>  Plain-text caption for the posted comment
   --json                JSON output to stdout
   --raw                 Raw URL(s) only
   --tag <name>          Release tag (default: _gh-imgup, must start with _)

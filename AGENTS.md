@@ -370,6 +370,21 @@ enforced. Violating one is a security regression, not a style nit.
    (`validate.ts`); any new response-URL validator must route through it and
    add only its endpoint-specific binding on top.
 
+10. **User-controlled text interpolated into Markdown for a GitHub-rendered
+    surface must be escaped, never pasted in raw.** Uploaded filename stems use
+    `escapeAltText` (`src/markdown.ts`), which backslash-escapes `\ [ ]` in
+    image alt text and collapses controls via `collapseControls`, so a crafted
+    filename cannot close `![…]` and inject a second image. The `-m/--message`
+    caption is plain text: `escapeMarkdownText` (also in `src/markdown.ts`)
+    collapses controls and backslash-escapes every ASCII punctuation character
+    before `src/index.ts` composes the comment, preventing active Markdown links
+    or images and raw HTML. Asset URLs use `markdownDestination`
+    (`src/upload.ts`), which angle-wraps a URL containing whitespace or `()`.
+    The default Markdown stdout output and the `--json` output's `markdown`
+    field share the `markdownLine` chokepoint in `src/upload.ts`; `--raw` emits
+    a bare URL and needs no Markdown escaping. Any future field must use an
+    escaper for its specific Markdown context before composition.
+
 ## Conventions & gotchas
 
 - **Automated PR reviewer: Codex.** ChatGPT Codex reviews every PR
