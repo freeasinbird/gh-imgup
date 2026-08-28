@@ -170,3 +170,25 @@ export function collapseControls(s: string): string {
 export function escapeAltText(text: string): string {
   return collapseControls(text.replace(/[\\[\]]/g, "\\$&"));
 }
+
+/**
+ * Render user-provided plain text inside a Markdown document. Backslash-escape
+ * every ASCII punctuation character, the full set CommonMark can interpret as
+ * syntax, so the value cannot inject a link, image, or raw HTML. Collapsing
+ * controls also prevents embedded newlines from starting new blocks. Printable
+ * Unicode remains unchanged.
+ */
+export function escapeMarkdownText(text: string): string {
+  let out = "";
+  for (const ch of collapseControls(text)) {
+    const cp = ch.codePointAt(0) ?? 0;
+    const isAsciiPunctuation =
+      (cp >= 0x21 && cp <= 0x2f) ||
+      (cp >= 0x3a && cp <= 0x40) ||
+      (cp >= 0x5b && cp <= 0x60) ||
+      (cp >= 0x7b && cp <= 0x7e);
+    if (isAsciiPunctuation) out += "\\";
+    out += ch;
+  }
+  return out;
+}

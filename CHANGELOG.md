@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Security
+
+- `-m/--message` captions are escaped as plain text before GitHub renders a
+  posted comment, so caption input cannot inject active links, images, or raw
+  HTML beside the uploaded image.
+
 ## [0.1.3] - 2026-07-01
 
 ### Fixed

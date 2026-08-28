@@ -7,7 +7,7 @@ import { decodesToToken } from "./apierr.js";
 import { BROAD_SCOPE_WARNING, resolveToken, sanitize } from "./auth.js";
 import { cleanup } from "./cleanup.js";
 import { postComment } from "./github.js";
-import { collapseControls } from "./markdown.js";
+import { collapseControls, escapeMarkdownText } from "./markdown.js";
 import { ensureRelease, uploadAsset } from "./release.js";
 import { type OutputFormat, render, type UploadResult } from "./upload.js";
 import {
@@ -29,7 +29,7 @@ Options:
   --repo <owner/repo>   Target repository (default: inferred from git remote)
   --pr <number>         Comment on a pull request
   --issue <number>      Comment on an issue
-  -m, --message <text>  Caption to include with the image(s)
+  -m, --message <text>  Plain-text caption for the posted comment
   --json                JSON output to stdout
   --raw                 Raw URL(s) only
   --tag <name>          Release tag (default: _gh-imgup, must start with _)
@@ -425,7 +425,9 @@ export async function run(
     }
 
     if (commentNumber !== undefined) {
-      const caption = args.message ? `${args.message}\n\n` : "";
+      const caption = args.message
+        ? `${escapeMarkdownText(args.message)}\n\n`
+        : "";
       const body = caption + render(results, "markdown");
       const comment = await postComment(token, repo, commentNumber, body, {
         fetchImpl: deps.fetchImpl,

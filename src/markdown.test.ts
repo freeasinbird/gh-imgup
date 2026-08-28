@@ -3,6 +3,7 @@ import { test } from "node:test";
 import {
   collapseControls,
   escapeAltText,
+  escapeMarkdownText,
   renderInlineMarkdown,
 } from "./markdown.js";
 
@@ -77,6 +78,32 @@ test("escapeAltText collapses control chars and line/paragraph separators to one
   assert.equal(escapeAltText(`a${ch(0x85)}b`), "a b"); // C1 NEL
   assert.equal(escapeAltText(`a${ch(0x2028)}b`), "a b"); // line separator
   assert.equal(escapeAltText(`a${ch(0x2029)}b`), "a b"); // paragraph separator
+});
+
+test("escapeMarkdownText neutralizes every ASCII Markdown punctuation character", () => {
+  const punctuation = Array.from({ length: 94 }, (_, i) =>
+    String.fromCodePoint(i + 0x21),
+  )
+    .filter((ch) => !/[A-Za-z0-9]/.test(ch))
+    .join("");
+  assert.equal(
+    escapeMarkdownText(punctuation),
+    [...punctuation].map((ch) => `\\${ch}`).join(""),
+  );
+  assert.equal(escapeMarkdownText("plain café 42"), "plain café 42");
+});
+
+test("escapeMarkdownText collapses controls before Markdown escaping", () => {
+  const ch = (...codes: number[]) =>
+    codes.map((c) => String.fromCodePoint(c)).join("");
+  assert.equal(
+    escapeMarkdownText(`first${ch(10)}# second${ch(0x9b)}`),
+    "first \\# second ",
+  );
+});
+
+test("escapeMarkdownText stays visible to the rendered-token guard", () => {
+  assert.equal(renderInlineMarkdown(escapeMarkdownText("ghp_TOK")), "ghp_TOK");
 });
 
 test("collapseControls strips C0/DEL/C1 and separators, collapsing runs", () => {

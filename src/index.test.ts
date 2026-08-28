@@ -320,11 +320,38 @@ test("--pr posts a comment with the caption and image markdown", async () => {
   const comment = calls.find((c) => c.url.endsWith("/issues/42/comments"));
   assert.ok(comment);
   const body = JSON.parse(comment.init.body as string).body as string;
-  assert.match(body, /^Before\/after\n\n/); // caption first
+  assert.match(body, /^Before\\\/after\n\n/); // escaped caption first
   assert.match(body, /!\[a\]\(.*a-[0-9a-f]{8}\.png\)/);
   assert.match(body, /!\[b\]\(.*b-[0-9a-f]{8}\.png\)/);
   assert.match(r.stderr, /✓ Commented on #42/);
   assert.doesNotMatch(r.stderr, /Ignoring --message/); // a target was given
+});
+
+test("--message posts a Markdown payload as plain text", async () => {
+  const { impl, calls } = ghApi();
+  const r = await run(
+    [
+      img("caption.png"),
+      "--repo",
+      "o/r",
+      "--issue",
+      "7",
+      "--message",
+      "![tracking](https://example.com/pixel)",
+    ],
+    baseDeps(impl),
+  );
+  assert.equal(r.exitCode, 0);
+  const comment = calls.find((c) => c.url.endsWith("/issues/7/comments"));
+  assert.ok(comment);
+  const body = JSON.parse(comment.init.body as string).body as string;
+  assert.ok(
+    body.startsWith(
+      "\\!\\[tracking\\]\\(https\\:\\/\\/example\\.com\\/pixel\\)\n\n",
+    ),
+  );
+  assert.doesNotMatch(body, /^!\[tracking\]\(https:\/\/example\.com\/pixel\)/);
+  assert.match(body, /!\[caption\]\(.*caption-[0-9a-f]{8}\.png\)/);
 });
 
 test("--message without --pr/--issue warns it is ignored but still uploads", async () => {
