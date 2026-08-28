@@ -20,7 +20,7 @@ npx -y @freeasinbird/gh-imgup screenshot.png --repo owner/repo --pr 42 -m "Login
 
 Needs a `GITHUB_TOKEN` with `contents:write` (add `issues:write` for `--pr`/`--issue`), or a logged-in `gh` CLI. Run it inside the target repo and `--repo` is inferred from the git remote.
 
-**Using an agent (Claude Code, Cursor, Codex)?** Also add the [skill](#agent-skill-claude-code-cursor-codex): `npx -y skills add freeasinbird/gh-imgup` gives the agent the usage guidance and the mandatory pre-upload image review. It does **not** install the CLI; the agent still runs `gh-imgup` from one of the options in [Installation](#installation). For the smoothest agent runs, pre-install a pinned version (`npm i -g @freeasinbird/gh-imgup@X.Y.Z`) and pre-authorize the bare `gh-imgup`; see [Pre-authorize for agents](#pre-authorize-for-agents), which covers both Claude and Codex.
+**Using an agent (Claude Code, Cursor, Codex)?** Also add the [skill](#agent-skill-claude-code-cursor-codex): `npx -y skills add freeasinbird/gh-imgup` gives the agent the usage guidance and the mandatory pre-upload image review. The skill installs no CLI binary of its own; per its Usage section, the agent runs the CLI zero-install via `npx -y @freeasinbird/gh-imgup` (Node 22+). For the smoothest agent runs, you can still pre-install a pinned version (`npm i -g @freeasinbird/gh-imgup@X.Y.Z`) and pre-authorize the bare `gh-imgup`; see [Pre-authorize for agents](#pre-authorize-for-agents), which covers both Claude and Codex.
 
 ---
 
