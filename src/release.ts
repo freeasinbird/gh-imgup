@@ -262,6 +262,37 @@ async function bestEffortDelete(
 }
 
 /**
+ * GET a release asset by id and parse its body, or `null` on any failure — a
+ * network throw, a non-200 status, or an unparseable body. Makes no acceptance
+ * decision of its own: `verifiedDelete` (URL-only, `isUsableAssetUrl`-checked)
+ * and cleanup's `idStillHostsUrl` (URL+name, no shape check) apply their own,
+ * intentionally different, policies to the result.
+ */
+export async function fetchAssetById(
+  token: string,
+  repo: Repo,
+  assetId: number,
+  fetchImpl: typeof fetch,
+): Promise<{ browser_download_url?: unknown; name?: unknown } | null> {
+  let res: Response;
+  try {
+    res = await authedFetch(
+      token,
+      `${API}/repos/${repoPath(repo)}/releases/assets/${assetId}`,
+      {},
+      fetchImpl,
+    );
+  } catch {
+    return null;
+  }
+  if (res.status !== 200) return null;
+  return (await res.json().catch(() => null)) as {
+    browser_download_url?: unknown;
+    name?: unknown;
+  } | null;
+}
+
+/**
  * Delete an asset we created but rejected — but only after confirming the id is
  * OURS. The 201's browser_download_url was bound to our upload (repo/tag/hex),
  * yet `asset.id` is a SEPARATE field: a malformed body could pair our URL with
@@ -293,25 +324,7 @@ async function verifiedDelete(
         `⚠ Could not confirm asset ${assetId} (${context}) is the one we uploaded; not deleting it. Run gh-imgup --cleanup to remove orphans.\n`,
       ),
     );
-  let got: { browser_download_url?: unknown } | null;
-  try {
-    const res = await authedFetch(
-      token,
-      `${API}/repos/${repoPath(repo)}/releases/assets/${assetId}`,
-      {},
-      fetchImpl,
-    );
-    if (res.status !== 200) {
-      orphanWarn();
-      return;
-    }
-    got = (await res.json().catch(() => null)) as {
-      browser_download_url?: unknown;
-    } | null;
-  } catch {
-    orphanWarn();
-    return;
-  }
+  const got = await fetchAssetById(token, repo, assetId, fetchImpl);
   const gotUrl = got?.browser_download_url;
   if (!isUsableAssetUrl(gotUrl, repo, tag) || gotUrl !== expectedUrl) {
     orphanWarn();

@@ -4,7 +4,12 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { after, test } from "node:test";
-import { deleteAsset, ensureRelease, uploadAsset } from "./release.js";
+import {
+  deleteAsset,
+  ensureRelease,
+  fetchAssetById,
+  uploadAsset,
+} from "./release.js";
 import { type FakeCall, json, scriptedFetch } from "./test-support.test.js";
 import type { ImageFile, Repo } from "./validate.js";
 
@@ -904,6 +909,41 @@ test("deleteAsset resolves on 204 and throws otherwise", async () => {
     () => deleteAsset(TOKEN, REPO, 5, { fetchImpl: bad.impl }),
     /Delete asset 5 failed: 500/,
   );
+});
+
+test("fetchAssetById returns null when the fetch throws", async () => {
+  const { impl } = scriptedFetch(() => {
+    throw new Error("network down");
+  });
+  const got = await fetchAssetById(TOKEN, REPO, 8, impl);
+  assert.equal(got, null);
+});
+
+test("fetchAssetById returns null on a non-200 status", async () => {
+  const { impl } = scriptedFetch(() => json({ message: "nf" }, 404));
+  const got = await fetchAssetById(TOKEN, REPO, 8, impl);
+  assert.equal(got, null);
+});
+
+test("fetchAssetById returns null on a 200 with an unparseable body", async () => {
+  const { impl } = scriptedFetch(
+    () => new Response("<html>not json</html>", { status: 200 }),
+  );
+  const got = await fetchAssetById(TOKEN, REPO, 8, impl);
+  assert.equal(got, null);
+});
+
+test("fetchAssetById returns the parsed body on a 200 with a parseable body", async () => {
+  const { impl, calls } = scriptedFetch(() =>
+    json({ browser_download_url: ASSET_URL, name: "x-a1b2c3d4.png" }, 200),
+  );
+  const got = await fetchAssetById(TOKEN, REPO, 8, impl);
+  assert.deepEqual(got, {
+    browser_download_url: ASSET_URL,
+    name: "x-a1b2c3d4.png",
+  });
+  assert.equal(calls[0]?.method, "GET");
+  assert.ok(calls[0]?.url.endsWith("/releases/assets/8"));
 });
 
 test("uploadAsset reports the integrity failure even when cleanup delete fails", async () => {

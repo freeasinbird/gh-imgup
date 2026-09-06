@@ -4,7 +4,12 @@ import { API, authedFetch, repoPath, sanitize } from "./auth.js";
 import { apiIoDefaults } from "./deps.js";
 import { rawNextLink } from "./link-header.js";
 import { renderInlineMarkdown } from "./markdown.js";
-import { deleteAsset, isUsableAssetUrl, releaseId } from "./release.js";
+import {
+  deleteAsset,
+  fetchAssetById,
+  isUsableAssetUrl,
+  releaseId,
+} from "./release.js";
 import type { Repo } from "./validate.js";
 import { refuseTokenBearingTag } from "./validate.js";
 
@@ -418,22 +423,7 @@ async function idStillHostsUrl(
   asset: Asset,
   fetchImpl: typeof fetch,
 ): Promise<boolean> {
-  let res: Response;
-  try {
-    res = await authedFetch(
-      token,
-      `${API}/repos/${repoPath(repo)}/releases/assets/${asset.id}`,
-      {},
-      fetchImpl,
-    );
-  } catch {
-    return false;
-  }
-  if (res.status !== 200) return false;
-  const got = (await res.json().catch(() => null)) as {
-    browser_download_url?: unknown;
-    name?: unknown;
-  } | null;
+  const got = await fetchAssetById(token, repo, asset.id, fetchImpl);
   return got?.browser_download_url === asset.url && got?.name === asset.name;
 }
 
