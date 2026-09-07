@@ -1,5 +1,5 @@
 import { sanitize } from "./auth.js";
-import { collapseControls } from "./markdown.js";
+import { collapseControls, renderInlineMarkdown } from "./markdown.js";
 
 /**
  * Shared, security-critical helpers for turning a GitHub API response into a
@@ -7,7 +7,8 @@ import { collapseControls } from "./markdown.js";
  * (release, github, cleanup) so the leak defenses live in exactly one place and
  * can't drift between consumers. `sanitize` (auth.ts) strips the LITERAL token;
  * the helpers here additionally defeat ENCODED forms a tampered/proxied response
- * could carry, and bound error detail.
+ * could carry, compose that with the AS-RENDERED form for a value headed to a
+ * public Markdown surface, and bound error detail.
  */
 
 /** Max characters of an API error body echoed into a message (keeps errors readable). */
@@ -60,6 +61,25 @@ export function decodesToToken(value: string, token: string): boolean {
     current = next;
   }
   return current.includes(token);
+}
+
+/**
+ * Whether `value` leaks `token` once GitHub renders it on a public Markdown
+ * surface — the single chokepoint for that question. Composes
+ * {@link decodesToToken} on the raw value (literal or any escape depth) with
+ * the same check on the value AS RENDERED (`renderInlineMarkdown`: HTML/
+ * numeric character references decoded, backslash escapes removed), so a
+ * token hidden only behind Markdown rendering — e.g. an HTML entity
+ * (`ghp&lowbar;TOK` -> `ghp_TOK`) or a backslash escape (`ghp\_TOK` ->
+ * `ghp_TOK`) — is still caught. Every guard that refuses to post/upload a
+ * value bound for a rendered surface should call this instead of inlining
+ * the two-call rule.
+ */
+export function leaksToken(value: string, token: string): boolean {
+  return (
+    decodesToToken(value, token) ||
+    decodesToToken(renderInlineMarkdown(value), token)
+  );
 }
 
 /**
