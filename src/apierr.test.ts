@@ -3,6 +3,7 @@ import { test } from "node:test";
 import {
   apiError,
   decodesToToken,
+  leaksToken,
   MAX_DETAIL,
   MAX_SCAN,
   redactBody,
@@ -24,6 +25,42 @@ test("decodesToToken does not false-positive on legit content", () => {
   assert.equal(decodesToToken("100%done and ghp_OTHER", TOKEN), false);
   assert.equal(decodesToToken(`a ${BS}u0041 b`, TOKEN), false); // A -> A
   assert.equal(decodesToToken("", TOKEN), false);
+});
+
+test("leaksToken catches a literal token", () => {
+  assert.equal(leaksToken(`x ${TOKEN} y`, TOKEN), true);
+});
+
+test("leaksToken is false on benign content with no token in any form", () => {
+  assert.equal(leaksToken("100%done and ghp_OTHER", TOKEN), false);
+});
+
+test("leaksToken catches a percent-encoded token via the raw-value branch", () => {
+  assert.equal(leaksToken("x ghp%5FTOK y", TOKEN), true);
+});
+
+test("leaksToken catches a \\u-escaped token via the raw-value branch", () => {
+  assert.equal(leaksToken(`x ghp${BS}u005FTOK y`, TOKEN), true);
+});
+
+test("leaksToken catches a token hidden behind an HTML named entity, via the rendered-value branch", () => {
+  // ghp&lowbar;TOK renders to ghp_TOK; decodesToToken alone does not decode
+  // HTML entities, so this only trips through the renderInlineMarkdown branch.
+  assert.equal(decodesToToken("ghp&lowbar;TOK", TOKEN), false);
+  assert.equal(leaksToken("see ghp&lowbar;TOK here", TOKEN), true);
+});
+
+test("leaksToken catches a token hidden behind a Markdown backslash escape, via the rendered-value branch", () => {
+  // ghp\_TOK is CommonMark for ghp_TOK; decodesToToken alone does not
+  // unescape backslashes, so this only trips through the rendered branch.
+  const escaped = `ghp${BS}_TOK`;
+  assert.equal(decodesToToken(escaped, TOKEN), false);
+  assert.equal(leaksToken(`see ${escaped} here`, TOKEN), true);
+});
+
+test("leaksToken does not false-positive on a near-miss in either raw or rendered form", () => {
+  assert.equal(leaksToken("see ghp&lowbar;OTHER here", TOKEN), false);
+  assert.equal(leaksToken(`see ghp${BS}_OTHER here`, TOKEN), false);
 });
 
 test("redactField redacts a token in any form, else echoes verbatim", () => {

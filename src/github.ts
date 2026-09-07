@@ -1,7 +1,6 @@
-import { apiError, decodesToToken } from "./apierr.js";
+import { apiError, decodesToToken, leaksToken } from "./apierr.js";
 import { API, authedFetch, repoPath, sanitize } from "./auth.js";
 import { apiIoDefaults } from "./deps.js";
-import { renderInlineMarkdown } from "./markdown.js";
 import type { Repo } from "./validate.js";
 import { boundGithubUrl } from "./validate.js";
 
@@ -75,11 +74,11 @@ export async function postComment(
 ): Promise<CommentResult> {
   const { fetchImpl, warn } = apiIoDefaults(deps);
   // A comment renders as Markdown on a PUBLIC surface, so refuse if the body
-  // would contain the token either as raw text / any escape (decodesToToken) or
-  // after GitHub renders it — decoding its HTML/Markdown character references
-  // and removing backslash escapes (\_ -> _).
-  const rendered = renderInlineMarkdown(body);
-  if (decodesToToken(body, token) || decodesToToken(rendered, token)) {
+  // would leak the token either as raw text / any escape or after GitHub
+  // renders it — decoding its HTML/Markdown character references and
+  // removing backslash escapes (\_ -> _). leaksToken (apierr.ts) is the
+  // shared chokepoint for that check.
+  if (leaksToken(body, token)) {
     throw new Error(
       sanitize(
         token,
