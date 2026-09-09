@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { MIME, mimeFor, render, type UploadResult } from "./upload.js";
+import { render, type UploadResult } from "./output.js";
 
 const one: UploadResult = {
   filename: "screenshot.png",
@@ -14,30 +14,6 @@ const two: UploadResult = {
   repo: "o/r",
   digest: "sha256:def456",
 };
-
-test("MIME allowlist is exactly the five raster types, no svg", () => {
-  assert.deepEqual(Object.keys(MIME).sort(), [
-    ".gif",
-    ".jpeg",
-    ".jpg",
-    ".png",
-    ".webp",
-  ]);
-  assert.equal(MIME[".svg"], undefined);
-});
-
-test("mimeFor resolves by extension, case-insensitively", () => {
-  assert.equal(mimeFor("a.png"), "image/png");
-  assert.equal(mimeFor("A.PNG"), "image/png");
-  assert.equal(mimeFor("photo.JPEG"), "image/jpeg");
-  assert.equal(mimeFor("clip.webp"), "image/webp");
-});
-
-test("mimeFor rejects unsupported and extensionless names", () => {
-  assert.equal(mimeFor("vector.svg"), undefined);
-  assert.equal(mimeFor("notes.txt"), undefined);
-  assert.equal(mimeFor("README"), undefined);
-});
 
 test("markdown render uses the original stem as alt text", () => {
   // Alt is the original stem ('screenshot'); the URL keeps the collision-safe name.

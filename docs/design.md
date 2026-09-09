@@ -647,7 +647,8 @@ gh-imgup/
 │   ├── markdown.ts       # Markdown escaping and rendered-inline normalization
 │   ├── validate.ts       # Repo, tag, number, file, MIME, remote URL parsing
 │   ├── cleanup.ts        # Scan issues/PRs for references, interactive deletion
-│   └── upload.ts         # Types, MIME allowlist, output formatters
+│   ├── mime.ts           # MIME allowlist, extension lookup
+│   └── output.ts         # Upload result type, output format type, stdout rendering
 ├── dist/                 # Compiled JS (npm package entry)
 ├── skills/gh-imgup/
 │   └── SKILL.md          # Agent skill definition
@@ -685,7 +686,7 @@ All three channels point at the same compiled code. The skill directory and exte
 
 ## Implementation
 
-About 2,500 lines of non-test TypeScript across 9 files. Zero runtime dependencies. The entire audit surface:
+About 2,500 lines of non-test TypeScript across 10 files. Zero runtime dependencies. The entire audit surface:
 
 - `index.ts` — CLI arg parsing, orchestration
 - `auth.ts` — token resolution, scope warning, error sanitization
@@ -695,7 +696,8 @@ About 2,500 lines of non-test TypeScript across 9 files. Zero runtime dependenci
 - `markdown.ts` — Markdown escaping and rendered-inline normalization
 - `validate.ts` — repo format, tag prefix, issue number, file stat/MIME, remote URL parsing
 - `cleanup.ts` — scan all issues/PRs for referenced assets, interactive deletion
-- `upload.ts` — types, MIME allowlist, markdown/JSON formatters
+- `mime.ts` — MIME allowlist, extension lookup
+- `output.ts` — upload result type, output format type, stdout rendering
 
 ---
 

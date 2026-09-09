@@ -379,9 +379,9 @@ enforced. Violating one is a security regression, not a style nit.
     collapses controls and backslash-escapes every ASCII punctuation character
     before `src/index.ts` composes the comment, preventing active Markdown links
     or images and raw HTML. Asset URLs use `markdownDestination`
-    (`src/upload.ts`), which angle-wraps a URL containing whitespace or `()`.
+    (`src/output.ts`), which angle-wraps a URL containing whitespace or `()`.
     The default Markdown stdout output and the `--json` output's `markdown`
-    field share the `markdownLine` chokepoint in `src/upload.ts`; `--raw` emits
+    field share the `markdownLine` chokepoint in `src/output.ts`; `--raw` emits
     a bare URL and needs no Markdown escaping. Any future field must use an
     escaper for its specific Markdown context before composition.
 
