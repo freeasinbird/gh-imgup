@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { closeSync, openSync, readSync, statSync } from "node:fs";
 import { basename } from "node:path";
 import { sanitize } from "./auth.js";
-import { MIME, mimeFor } from "./upload.js";
+import { MIME, mimeFor } from "./mime.js";
 
 /** A validated repository identity. */
 export interface Repo {

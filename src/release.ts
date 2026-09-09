@@ -5,7 +5,7 @@ import { apiError, leaksToken, redactBody, redactField } from "./apierr.js";
 import { API, authedFetch, repoPath, sanitize, UPLOADS } from "./auth.js";
 import { apiIoDefaults } from "./deps.js";
 import { collapseControls } from "./markdown.js";
-import type { UploadResult } from "./upload.js";
+import type { UploadResult } from "./output.js";
 import type { ImageFile, Repo } from "./validate.js";
 import { boundGithubUrl, refuseTokenBearingTag } from "./validate.js";
 

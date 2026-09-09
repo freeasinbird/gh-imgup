@@ -8,8 +8,8 @@ import { BROAD_SCOPE_WARNING, resolveToken, sanitize } from "./auth.js";
 import { cleanup } from "./cleanup.js";
 import { postComment } from "./github.js";
 import { collapseControls, escapeMarkdownText } from "./markdown.js";
+import { type OutputFormat, render, type UploadResult } from "./output.js";
 import { ensureRelease, uploadAsset } from "./release.js";
-import { type OutputFormat, render, type UploadResult } from "./upload.js";
 import {
   type ImageFile,
   parseGitRemoteUrl,

@@ -331,7 +331,8 @@ gh-imgup/
 │   ├── validate.ts       # Repo, tag, number, file, MIME, remote URL parsing
 │   ├── cleanup.ts        # Scan issues/PRs for references, interactive deletion
 │   ├── markdown.ts       # Rendered-inline Markdown decode + alt-text escaping
-│   └── upload.ts         # Types, MIME allowlist, output formatters
+│   ├── mime.ts           # MIME allowlist, extension lookup
+│   └── output.ts         # Upload result type, output format type, stdout rendering
 ├── dist/                 # Compiled JS
 ├── skills/gh-imgup/
 │   └── SKILL.md          # Agent skill definition
