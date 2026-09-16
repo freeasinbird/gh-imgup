@@ -334,30 +334,25 @@ async function verifiedDelete(
 }
 
 /**
- * Upload one image as a release asset and verify its integrity. Computes the
- * local SHA-256, uploads, then compares against the API `digest`; on mismatch
- * the asset is deleted and the upload fails. A missing digest warns (the server
- * may omit it) rather than silently passing. Returns the render-ready result.
+ * Redact the literal token from a filename, then reject if ANY encoded token
+ * survives (mixed literal+encoded, or encoded-only) — sanitize can't strip
+ * encoded forms, and they'd otherwise reach the public asset name or error
+ * messages. Must run BEFORE any file I/O. Also returns the control-char-
+ * collapsed display filename used by every later display surface: the
+ * returned filename (--json `filename` / the stderr "✓ Uploaded …" line) and
+ * the success-path no-digest warning, so a raw DEL/C1 in the name can't reach
+ * stderr later. The name also becomes Markdown alt text on stdout, so this
+ * also rejects a token hidden in a RENDERED form — HTML entities (e.g.
+ * `ghp&lowbar;TOK` -> `ghp_TOK`) that a plain decode check wouldn't catch but
+ * GitHub's Markdown would. `leaksToken` (apierr.ts) mirrors the public
+ * comment guard (github.ts) so upload-only stdout gets the same
+ * rendered-form refusal (invariant 3).
  */
-export async function uploadAsset(
+function guardFilename(
   token: string,
-  repo: Repo,
-  releaseId: number,
-  tag: string,
-  file: ImageFile,
-  deps: ReleaseDeps = {},
-): Promise<UploadResult> {
-  const { fetchImpl, warn } = apiIoDefaults(deps);
-  // Redact the literal token from the name, then reject if ANY encoded token
-  // survives (mixed literal+encoded, or encoded-only) — sanitize can't strip
-  // encoded forms, and they'd otherwise reach the public asset name or error
-  // messages. Done BEFORE any file I/O. The display/asset name reuses this.
-  // The name also becomes Markdown alt text on stdout, so reject a token hidden
-  // in a RENDERED form too — HTML entities (e.g. `ghp&lowbar;TOK` -> `ghp_TOK`)
-  // that decodesToToken alone doesn't decode but GitHub's Markdown does.
-  // leaksToken (apierr.ts) mirrors the public comment guard (github.ts) so
-  // upload-only stdout gets the same rendered-form refusal (invariant 3).
-  const displayName = sanitize(token, file.filename);
+  filename: string,
+): { displayName: string; displayFilename: string } {
+  const displayName = sanitize(token, filename);
   if (leaksToken(displayName, token)) {
     throw new Error(
       sanitize(
@@ -366,21 +361,31 @@ export async function uploadAsset(
       ),
     );
   }
-  // Control-char-collapsed name for every display surface: the returned filename
-  // (--json `filename` / the stderr "✓ Uploaded …" line) AND the success-path
-  // no-digest warning below. Computed once so a raw DEL/C1 in the filename can't
-  // reach stderr on a successful upload where the server omits the digest.
-  const displayFilename = collapseControls(displayName);
-  // fs errors echo the error CODE only — never err.message, which embeds the
-  // full filepath; unlike the checked basename, a directory component could
-  // carry an encoded token. file.filename (basename) is checked above.
+  return { displayName, displayFilename: collapseControls(displayName) };
+}
+
+/**
+ * Re-validate the file on disk immediately before upload and return its bytes
+ * plus their SHA-256. fs errors echo the error CODE only — never
+ * `err.message`, which embeds the full filepath; unlike the checked basename,
+ * a directory component could carry an encoded token (the basename itself is
+ * checked by `guardFilename`). Re-stats BEFORE reading: a file
+ * replaced/grown after `validateImageFile` (TOCTOU) is rejected here, so
+ * `readFileSync` never pulls a now-arbitrarily-large file into memory —
+ * bounding memory despite --max-size. Then re-checks the size again right
+ * after the read (the tiny stat→read window) and finally compares the
+ * freshly computed digest against the validation-time `file.sha256`: a file
+ * replaced with different bytes of the SAME length — which the size checks
+ * can't catch — must not be uploaded unreviewed.
+ */
+function readValidatedFile(
+  token: string,
+  file: ImageFile,
+): { bytes: Buffer; localDigest: string } {
   const readFailed = (err: unknown) => {
     const code = (err as NodeJS.ErrnoException).code ?? "read failed";
     return new Error(sanitize(token, `Cannot read ${file.filename}: ${code}`));
   };
-  // Re-stat BEFORE reading: a file replaced/grown after validateImageFile
-  // (TOCTOU) is rejected here, so readFileSync never pulls a now-arbitrarily-
-  // large file into memory — bounding memory despite --max-size.
   let current: number;
   try {
     current = statSync(file.filepath).size;
@@ -401,8 +406,6 @@ export async function uploadAsset(
   } catch (err) {
     throw readFailed(err);
   }
-  // Backstop for the tiny stat→read window: if the file grew between the stat
-  // and the read, reject before hashing/uploading the wrong (unvalidated) bytes.
   if (bytes.length !== file.size) {
     throw new Error(
       sanitize(
@@ -412,11 +415,6 @@ export async function uploadAsset(
     );
   }
   const localDigest = createHash("sha256").update(bytes).digest("hex");
-  // Bind the upload to the content validated up front: a file replaced between
-  // validateImageFile (which fingerprinted it) and now — even with different
-  // bytes of the SAME length, which the size recheck above can't catch — must
-  // not be uploaded unreviewed. Compare the just-computed digest to the
-  // validation-time one and fail closed before sending anything.
   if (localDigest !== file.sha256) {
     throw new Error(
       sanitize(
@@ -425,35 +423,50 @@ export async function uploadAsset(
       ),
     );
   }
-  // displayName (token-redacted) was computed above; it becomes the public asset
-  // name (in browser_download_url) and the returned filename (markdown alt).
-  const { name: assetName, hex } = safeFilename(displayName);
+  return { bytes, localDigest };
+}
+
+/** Raw shape of a 201 upload-asset response body, before any field beyond `id` is validated. */
+interface RawUploadAsset {
+  id?: unknown;
+  browser_download_url?: unknown;
+  digest?: unknown;
+  size?: unknown;
+  content_type?: unknown;
+  state?: unknown;
+}
+
+/**
+ * POST the file bytes to create the release asset and validate the success
+ * payload before trusting it: a 201 with a malformed body must not yield
+ * `url: undefined` on stdout (exit 0) or an undefined asset id for the
+ * mismatch-cleanup delete. A valid asset id comes first — both to render and
+ * to clean up if a later check rejects the (already-created) asset. An
+ * omitted digest stays the documented warning-only case, handled downstream.
+ */
+async function postAssetUpload(
+  token: string,
+  repo: Repo,
+  releaseId: number,
+  assetName: string,
+  bytes: Buffer,
+  mime: string,
+  filename: string,
+  fetchImpl: typeof fetch,
+): Promise<RawUploadAsset & { id: number }> {
   const uploadUrl = `${UPLOADS}/repos/${repoPath(repo)}/releases/${releaseId}/assets?name=${encodeURIComponent(assetName)}`;
 
   const res = await authedFetch(
     token,
     uploadUrl,
-    { method: "POST", headers: { "Content-Type": file.mime }, body: bytes },
+    { method: "POST", headers: { "Content-Type": mime }, body: bytes },
     fetchImpl,
   );
   if (res.status !== 201) {
-    throw await apiError(token, res, `Upload ${file.filename}`);
+    throw await apiError(token, res, `Upload ${filename}`);
   }
 
-  // Validate the success payload before trusting it: a 201 with a malformed
-  // body must not yield `url: undefined` on stdout (exit 0) or an undefined
-  // asset id for the mismatch-cleanup delete. An omitted digest stays the
-  // documented warning-only case.
-  const asset = (await res.json().catch(() => null)) as {
-    id?: unknown;
-    browser_download_url?: unknown;
-    digest?: unknown;
-    size?: unknown;
-    content_type?: unknown;
-    state?: unknown;
-  } | null;
-  // A valid asset id comes first — both to render and to clean up if a later
-  // check rejects the (already-created) asset.
+  const asset = (await res.json().catch(() => null)) as RawUploadAsset | null;
   if (
     !asset ||
     typeof asset.id !== "number" ||
@@ -464,18 +477,31 @@ export async function uploadAsset(
       sanitize(
         token,
         new Error(
-          `Upload ${file.filename} returned an unexpected response (missing asset id)`,
+          `Upload ${filename} returned an unexpected response (missing asset id)`,
         ),
       ),
     );
   }
-  // The URL must be usable, already canonical (real GitHub URLs are
-  // percent-encoded, so reject raw delimiters like <,>,"), bound to THIS
-  // repo+tag, carry our unique hex (so a tampered 201 can't return a stale
-  // same-repo+tag asset), and contain no token at any decode depth. We do NOT
-  // delete on failure here: the URL didn't bind to our upload, so asset.id is
-  // unverified — deleting it could remove an unrelated asset. Warn instead.
-  const downloadUrl = asset.browser_download_url;
+  return asset as RawUploadAsset & { id: number };
+}
+
+/**
+ * The URL must be usable, already canonical (real GitHub URLs are
+ * percent-encoded, so reject raw delimiters like <,>,"), bound to THIS
+ * repo+tag, carry our unique hex (so a tampered 201 can't return a stale
+ * same-repo+tag asset), and contain no token at any decode depth. We do NOT
+ * delete on failure here: the URL didn't bind to our upload, so the asset id
+ * is unverified — deleting it could remove an unrelated asset. Warn instead.
+ */
+function bindResponseUrl(
+  token: string,
+  repo: Repo,
+  tag: string,
+  hex: string,
+  filename: string,
+  downloadUrl: unknown,
+  warn: (message: string) => void,
+): string {
   if (
     !isUsableAssetUrl(downloadUrl, repo, tag) ||
     !(downloadUrl.split("/").pop() ?? "").includes(hex) ||
@@ -484,93 +510,134 @@ export async function uploadAsset(
     warn(
       sanitize(
         token,
-        `⚠ Upload of ${file.filename} returned an unusable URL; an asset may have been created — run gh-imgup --cleanup to remove orphans.\n`,
+        `⚠ Upload of ${filename} returned an unusable URL; an asset may have been created — run gh-imgup --cleanup to remove orphans.\n`,
       ),
     );
     throw new Error(
       sanitize(
         token,
         new Error(
-          `Upload ${file.filename} returned an unexpected response (unusable asset URL)`,
+          `Upload ${filename} returned an unexpected response (unusable asset URL)`,
         ),
       ),
     );
   }
-  // The URL is bound to our upload; the remaining checks may reject the asset and
-  // clean it up. asset.id is a separate field, so cleanup goes through
-  // verifiedDelete (re-fetch by id, delete only if it hosts our upload) rather
-  // than trusting the id outright. A present content_type that differs from what
-  // we sent (a server rewrite to octet-stream/svg) breaks the strict-MIME
-  // invariant; a present state other than "uploaded" (e.g. a "starter" leftover)
-  // is an incomplete asset. Either fails closed.
-  if (asset.content_type !== undefined && asset.content_type !== file.mime) {
+  return downloadUrl;
+}
+
+/**
+ * Once the URL is bound to our upload, a present `content_type` that differs
+ * from what we sent (a server rewrite to octet-stream/svg) breaks the
+ * strict-MIME invariant; a present `state` other than "uploaded" (e.g. a
+ * "starter" leftover) is an incomplete asset. Either fails closed: the asset
+ * id is a separate field from the bound URL, so cleanup goes through
+ * `verifiedDelete` (re-fetch by id, delete only if it hosts our upload)
+ * rather than trusting the id outright.
+ */
+async function rejectInvalidAssetShape(
+  token: string,
+  repo: Repo,
+  tag: string,
+  assetId: number,
+  downloadUrl: string,
+  filename: string,
+  mime: string,
+  contentType: unknown,
+  state: unknown,
+  deps: ReleaseDeps,
+): Promise<void> {
+  if (contentType !== undefined && contentType !== mime) {
     await verifiedDelete(
       token,
       repo,
-      asset.id,
+      assetId,
       tag,
       downloadUrl,
-      `mime-mismatch ${file.filename}`,
+      `mime-mismatch ${filename}`,
       deps,
     );
     throw new Error(
       sanitize(
         token,
         new Error(
-          `Upload ${file.filename} stored as ${redactField(asset.content_type, token)}, not ${file.mime}`,
+          `Upload ${filename} stored as ${redactField(contentType, token)}, not ${mime}`,
         ),
       ),
     );
   }
-  if (asset.state !== undefined && asset.state !== "uploaded") {
+  if (state !== undefined && state !== "uploaded") {
     await verifiedDelete(
       token,
       repo,
-      asset.id,
+      assetId,
       tag,
       downloadUrl,
-      `bad-state ${file.filename}`,
+      `bad-state ${filename}`,
       deps,
     );
     throw new Error(
       sanitize(
         token,
         new Error(
-          `Upload ${file.filename} is not in the uploaded state (${redactField(asset.state, token)})`,
+          `Upload ${filename} is not in the uploaded state (${redactField(state, token)})`,
         ),
       ),
     );
   }
-  // Only an absent/null digest is the documented warn-only case. A present
-  // digest that is empty, non-string (false/0), or otherwise malformed must
-  // fail closed — never skip verification — so it routes to the mismatch branch.
+}
+
+/**
+ * Verify the uploaded bytes against the API `digest`, returning the
+ * canonical `UploadResult.digest` value (`""` or `sha256:<lowercased hex>`,
+ * never the raw server string). Only an absent/null digest is the documented
+ * warn-only case. A present digest that is empty, non-string (false/0), or
+ * otherwise malformed must fail closed — never skip verification — so it
+ * routes to the mismatch branch below. With no digest to verify against,
+ * falls back to the response size if present: a mismatch — or a
+ * present-but-non-number size (the only signal left here) — means we can't
+ * confirm the stored bytes, so fails closed too. A failed cleanup delete is
+ * always a warning, not a replacement error, so the caller still learns the
+ * upload was corrupt/unverified either way.
+ */
+async function verifyIntegrity(
+  token: string,
+  repo: Repo,
+  tag: string,
+  assetId: number,
+  downloadUrl: string,
+  filename: string,
+  digest: unknown,
+  size: unknown,
+  bytes: Buffer,
+  localDigest: string,
+  displayFilename: string,
+  deps: ReleaseDeps,
+): Promise<string> {
+  const { warn } = apiIoDefaults(deps);
   let remote: string | null;
-  if (asset.digest === undefined || asset.digest === null) {
+  if (digest === undefined || digest === null) {
     remote = null;
-  } else if (typeof asset.digest === "string" && asset.digest !== "") {
-    remote = asset.digest.replace(/^sha256:/i, "").toLowerCase();
+  } else if (typeof digest === "string" && digest !== "") {
+    remote = digest.replace(/^sha256:/i, "").toLowerCase();
   } else {
     remote = "(malformed)"; // present but unusable → guaranteed mismatch
   }
   if (remote === null) {
-    // No digest to verify against. Fall back to the response size if present: a
-    // mismatch — or a present-but-non-number size (the only signal left here) —
-    // means we can't confirm the stored bytes, so fail closed.
-    if (asset.size !== undefined && asset.size !== bytes.length) {
+    if (size !== undefined && size !== bytes.length) {
       await verifiedDelete(
         token,
         repo,
-        asset.id,
+        assetId,
         tag,
         downloadUrl,
-        `size-mismatch ${file.filename}`,
+        `size-mismatch ${filename}`,
         deps,
       );
       throw new Error(
         sanitize(
           token,
           new Error(
-            `Upload ${file.filename} size mismatch: local ${bytes.length} != server ${redactField(asset.size, token)}`,
+            `Upload ${filename} size mismatch: local ${bytes.length} != server ${redactField(size, token)}`,
           ),
         ),
       );
@@ -584,16 +651,16 @@ export async function uploadAsset(
         `⚠ Server returned no digest for ${displayFilename} — integrity not verified\n`,
       ),
     );
-  } else if (remote !== localDigest.toLowerCase()) {
-    // Always surface the integrity failure; a failed cleanup is a warning, not a
-    // replacement error, so the caller still learns the upload was corrupt.
+    return "";
+  }
+  if (remote !== localDigest.toLowerCase()) {
     await verifiedDelete(
       token,
       repo,
-      asset.id,
+      assetId,
       tag,
       downloadUrl,
-      `integrity-failed ${file.filename}`,
+      `integrity-failed ${filename}`,
       deps,
     );
     // `remote` is response-derived, so it goes through sanitize; and a non-hex
@@ -605,11 +672,82 @@ export async function uploadAsset(
       sanitize(
         token,
         new Error(
-          `Integrity check failed for ${file.filename}: local ${localDigest} != remote ${shownRemote}`,
+          `Integrity check failed for ${filename}: local ${localDigest} != remote ${shownRemote}`,
         ),
       ),
     );
   }
+  // Emit the canonical, verified digest rather than the raw server string, so
+  // --json always honors the sha256:<hex> contract.
+  return `sha256:${remote}`;
+}
+
+/**
+ * Upload one image as a release asset and verify its integrity. Computes the
+ * local SHA-256, uploads, then compares against the API `digest`; on mismatch
+ * the asset is deleted and the upload fails. A missing digest warns (the server
+ * may omit it) rather than silently passing. Returns the render-ready result.
+ */
+export async function uploadAsset(
+  token: string,
+  repo: Repo,
+  releaseId: number,
+  tag: string,
+  file: ImageFile,
+  deps: ReleaseDeps = {},
+): Promise<UploadResult> {
+  const { fetchImpl, warn } = apiIoDefaults(deps);
+  const { displayName, displayFilename } = guardFilename(token, file.filename);
+  const { bytes, localDigest } = readValidatedFile(token, file);
+  // displayName (token-redacted) becomes the public asset name (in
+  // browser_download_url) and the returned filename (markdown alt).
+  const { name: assetName, hex } = safeFilename(displayName);
+
+  const asset = await postAssetUpload(
+    token,
+    repo,
+    releaseId,
+    assetName,
+    bytes,
+    file.mime,
+    file.filename,
+    fetchImpl,
+  );
+  const downloadUrl = bindResponseUrl(
+    token,
+    repo,
+    tag,
+    hex,
+    file.filename,
+    asset.browser_download_url,
+    warn,
+  );
+  await rejectInvalidAssetShape(
+    token,
+    repo,
+    tag,
+    asset.id,
+    downloadUrl,
+    file.filename,
+    file.mime,
+    asset.content_type,
+    asset.state,
+    deps,
+  );
+  const digest = await verifyIntegrity(
+    token,
+    repo,
+    tag,
+    asset.id,
+    downloadUrl,
+    file.filename,
+    asset.digest,
+    asset.size,
+    bytes,
+    localDigest,
+    displayFilename,
+    deps,
+  );
 
   return {
     // The returned filename echoes verbatim into the --json `filename` field and
@@ -619,9 +757,7 @@ export async function uploadAsset(
     filename: displayFilename,
     url: downloadUrl,
     repo: `${repo.owner}/${repo.name}`,
-    // Emit the canonical, verified digest (or "" when omitted) rather than the
-    // raw server string, so --json always honors the sha256:<hex> contract.
-    digest: remote === null ? "" : `sha256:${remote}`,
+    digest,
   };
 }
 
