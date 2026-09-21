@@ -452,10 +452,19 @@ export async function run(
     // only the literal form, so redact the whole message if it decodes to the
     // token at any depth. This catch is the one chokepoint for every such error.
     const message = sanitize(token, err);
+    // A user-supplied path/flag can also carry raw control characters (a CSI or
+    // other C0/C1 byte) that would forge stderr/CI log lines or break the
+    // one-line-per-error contract (invariants 3 and 7). Individual throw sites
+    // that echo a filename collapse their own controls, but paths reached before
+    // upload (e.g. validateImageFile's "File not found"/"Unsupported file type")
+    // do not, so collapse here at the chokepoint. Check both forms: collapsing
+    // could hide an encoded token or synthesize one containing internal spaces.
+    const collapsed = collapseControls(message);
     const safe =
-      token && decodesToToken(message, token)
+      token &&
+      (decodesToToken(message, token) || decodesToToken(collapsed, token))
         ? "[error redacted: it referenced the GitHub token]"
-        : message;
+        : collapsed;
     stderr.push(`gh-imgup: ${safe}\n`);
     return { stdout: "", stderr: stderr.join(""), exitCode: 1 };
   }
