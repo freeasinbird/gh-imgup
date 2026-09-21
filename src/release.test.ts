@@ -651,6 +651,184 @@ test("uploadAsset collapses control chars in the no-digest success warning", asy
   assert.match(warnings.join(""), /no digest for shot x\.png/); // collapsed, not raw CSI
 });
 
+test("uploadAsset collapses control chars in the 'Cannot read' error", async () => {
+  // Error-path echo of the filename (missing/unreadable file) must use the
+  // collapsed display name, not the raw CSI-bearing filename — closes the
+  // "Scoped out" gap from devlog/2026-06-26-1114-strip-del-c1-controls.md.
+  const file: ImageFile = {
+    filepath: join(dir, "does-not-exist-ctrl.png"),
+    filename: `shot${String.fromCharCode(0x9b)}x.png`,
+    mime: "image/png",
+    size: 10,
+    sha256: "0".repeat(64), // irrelevant: rejected before the digest compare
+  };
+  const { impl, calls } = scriptedFetch(() => {
+    throw new Error("fetch should not be reached when the read fails");
+  });
+  await assert.rejects(
+    () => uploadAsset(TOKEN, REPO, 42, TAG, file, { fetchImpl: impl }),
+    (err: Error) => {
+      assert.match(err.message, /Cannot read shot x\.png/);
+      assert.doesNotMatch(err.message, /\x9b/);
+      return true;
+    },
+  );
+  assert.equal(calls.length, 0);
+});
+
+test("uploadAsset collapses control chars in the 'changed after validation' error", async () => {
+  const filepath = join(dir, "changed-ctrl.png");
+  writeFileSync(filepath, Buffer.from("BYTES"));
+  const file: ImageFile = {
+    filepath,
+    filename: `shot${String.fromCharCode(0x9b)}x.png`,
+    mime: "image/png",
+    size: 2, // wrong on purpose: the on-disk file is 5 bytes
+    sha256: sha256("BYTES"),
+  };
+  const { impl, calls } = scriptedFetch(() => {
+    throw new Error("fetch should not be reached");
+  });
+  await assert.rejects(
+    () => uploadAsset(TOKEN, REPO, 42, TAG, file, { fetchImpl: impl }),
+    (err: Error) => {
+      assert.match(err.message, /File shot x\.png changed after validation/);
+      assert.doesNotMatch(err.message, /\x9b/);
+      return true;
+    },
+  );
+  assert.equal(calls.length, 0);
+});
+
+test("uploadAsset collapses control chars in the non-201 upload apiError", async () => {
+  const file = imageFixture(`shot${String.fromCharCode(0x9b)}x.png`, "BYTES");
+  const { impl } = scriptedFetch(() => json({ message: "nope" }, 403));
+  await assert.rejects(
+    () => uploadAsset(TOKEN, REPO, 42, TAG, file, { fetchImpl: impl }),
+    (err: Error) => {
+      assert.match(err.message, /Upload shot x\.png failed: 403/);
+      assert.doesNotMatch(err.message, /\x9b/);
+      return true;
+    },
+  );
+});
+
+test("uploadAsset collapses control chars in the missing-asset-id error", async () => {
+  const file = imageFixture(`shot${String.fromCharCode(0x9b)}x.png`, "BYTES");
+  const { impl } = scriptedFetch(() =>
+    json({ browser_download_url: "https://x/w.png" }, 201),
+  );
+  await assert.rejects(
+    () => uploadAsset(TOKEN, REPO, 42, TAG, file, { fetchImpl: impl }),
+    (err: Error) => {
+      assert.match(
+        err.message,
+        /Upload shot x\.png returned an unexpected response \(missing asset id\)/,
+      );
+      assert.doesNotMatch(err.message, /\x9b/);
+      return true;
+    },
+  );
+});
+
+test("uploadAsset collapses control chars in the unusable-asset-url warn and error", async () => {
+  const file = imageFixture(`shot${String.fromCharCode(0x9b)}x.png`, "BYTES");
+  const warnings: string[] = [];
+  const { impl } = scriptedFetch(() =>
+    json({ id: 5, browser_download_url: "" }, 201),
+  );
+  await assert.rejects(
+    () =>
+      uploadAsset(TOKEN, REPO, 42, TAG, file, {
+        fetchImpl: impl,
+        warn: (m) => warnings.push(m),
+      }),
+    (err: Error) => {
+      assert.match(
+        err.message,
+        /Upload shot x\.png returned an unexpected response \(unusable asset URL\)/,
+      );
+      assert.doesNotMatch(err.message, /\x9b/);
+      return true;
+    },
+  );
+  assert.match(
+    warnings.join(""),
+    /Upload of shot x\.png returned an unusable URL/,
+  );
+  assert.doesNotMatch(warnings.join(""), /\x9b/);
+});
+
+test("uploadAsset collapses control chars in the content_type/state mismatch errors", async () => {
+  const filepath = join(dir, "shape-ctrl.png");
+  writeFileSync(filepath, Buffer.from("BYTES"));
+  const digest = `sha256:${sha256("BYTES")}`;
+  for (const extra of [
+    { content_type: "application/octet-stream" },
+    { state: "starter" },
+  ]) {
+    const file: ImageFile = {
+      filepath,
+      filename: `shot${String.fromCharCode(0x9b)}x.png`,
+      mime: "image/png",
+      size: 5,
+      sha256: sha256("BYTES"),
+    };
+    const { impl, calls } = cleanupFetch((req) => {
+      const name = new URL(req.url).searchParams.get("name") ?? "";
+      return json(
+        { id: 8, browser_download_url: assetUrl(name), digest, ...extra },
+        201,
+      );
+    });
+    await assert.rejects(
+      () => uploadAsset(TOKEN, REPO, 42, TAG, file, { fetchImpl: impl }),
+      (err: Error) => {
+        assert.match(err.message, /shot x\.png/);
+        assert.doesNotMatch(err.message, /\x9b/);
+        return true;
+      },
+      JSON.stringify(extra),
+    );
+    assert.ok(calls.some((c) => c.method === "DELETE"));
+  }
+});
+
+test("uploadAsset collapses control chars in the integrity-check-failed error", async () => {
+  const file = imageFixture(
+    `shot${String.fromCharCode(0x9b)}x.png`,
+    "REALBYTES",
+  );
+  const { impl, calls } = cleanupFetch((req) =>
+    uploadOk(req, { id: 8, digest: `sha256:${"a".repeat(64)}` }),
+  );
+  await assert.rejects(
+    () => uploadAsset(TOKEN, REPO, 42, TAG, file, { fetchImpl: impl }),
+    (err: Error) => {
+      assert.match(err.message, /Integrity check failed for shot x\.png/);
+      assert.doesNotMatch(err.message, /\x9b/);
+      return true;
+    },
+  );
+  assert.ok(calls.some((c) => c.method === "DELETE"));
+});
+
+test("uploadAsset collapses control chars in the no-digest size-mismatch error", async () => {
+  const file = imageFixture(`shot${String.fromCharCode(0x9b)}x.png`, "BYTES");
+  const { impl, calls } = cleanupFetch((req) =>
+    uploadOk(req, { id: 8, size: 999 }),
+  );
+  await assert.rejects(
+    () => uploadAsset(TOKEN, REPO, 42, TAG, file, { fetchImpl: impl }),
+    (err: Error) => {
+      assert.match(err.message, /Upload shot x\.png size mismatch/);
+      assert.doesNotMatch(err.message, /\x9b/);
+      return true;
+    },
+  );
+  assert.ok(calls.some((c) => c.method === "DELETE"));
+});
+
 test("uploadAsset fails closed on a present non-string digest", async () => {
   const file = imageFixture("nonstrdig.png", "BYTES");
   const { impl, calls } = cleanupFetch((req) =>

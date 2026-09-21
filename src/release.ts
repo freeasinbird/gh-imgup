@@ -381,10 +381,13 @@ function guardFilename(
 function readValidatedFile(
   token: string,
   file: ImageFile,
+  displayFilename: string,
 ): { bytes: Buffer; localDigest: string } {
   const readFailed = (err: unknown) => {
     const code = (err as NodeJS.ErrnoException).code ?? "read failed";
-    return new Error(sanitize(token, `Cannot read ${file.filename}: ${code}`));
+    return new Error(
+      sanitize(token, `Cannot read ${displayFilename}: ${code}`),
+    );
   };
   let current: number;
   try {
@@ -396,7 +399,7 @@ function readValidatedFile(
     throw new Error(
       sanitize(
         token,
-        `File ${file.filename} changed after validation (${file.size} → ${current} bytes); re-run.`,
+        `File ${displayFilename} changed after validation (${file.size} → ${current} bytes); re-run.`,
       ),
     );
   }
@@ -410,7 +413,7 @@ function readValidatedFile(
     throw new Error(
       sanitize(
         token,
-        `File ${file.filename} changed after validation (${file.size} → ${bytes.length} bytes); re-run.`,
+        `File ${displayFilename} changed after validation (${file.size} → ${bytes.length} bytes); re-run.`,
       ),
     );
   }
@@ -419,7 +422,7 @@ function readValidatedFile(
     throw new Error(
       sanitize(
         token,
-        `File ${file.filename} changed after validation; re-run.`,
+        `File ${displayFilename} changed after validation; re-run.`,
       ),
     );
   }
@@ -605,7 +608,6 @@ async function verifyIntegrity(
   tag: string,
   assetId: number,
   downloadUrl: string,
-  filename: string,
   digest: unknown,
   size: unknown,
   bytes: Buffer,
@@ -630,21 +632,21 @@ async function verifyIntegrity(
         assetId,
         tag,
         downloadUrl,
-        `size-mismatch ${filename}`,
+        `size-mismatch ${displayFilename}`,
         deps,
       );
       throw new Error(
         sanitize(
           token,
           new Error(
-            `Upload ${filename} size mismatch: local ${bytes.length} != server ${redactField(size, token)}`,
+            `Upload ${displayFilename} size mismatch: local ${bytes.length} != server ${redactField(size, token)}`,
           ),
         ),
       );
     }
-    // file.filename is user-controlled, so the whole warning is sanitized too;
-    // use the control-char-collapsed display name (this is a success-path stderr
-    // line, so a raw DEL/C1 in the name must not reach the terminal/CI log).
+    // This is a success-path stderr line, so — like every other interpolation
+    // in this function — it uses displayFilename: a raw DEL/C1 in the name
+    // must not reach the terminal/CI log.
     warn(
       sanitize(
         token,
@@ -660,7 +662,7 @@ async function verifyIntegrity(
       assetId,
       tag,
       downloadUrl,
-      `integrity-failed ${filename}`,
+      `integrity-failed ${displayFilename}`,
       deps,
     );
     // `remote` is response-derived, so it goes through sanitize; and a non-hex
@@ -672,7 +674,7 @@ async function verifyIntegrity(
       sanitize(
         token,
         new Error(
-          `Integrity check failed for ${filename}: local ${localDigest} != remote ${shownRemote}`,
+          `Integrity check failed for ${displayFilename}: local ${localDigest} != remote ${shownRemote}`,
         ),
       ),
     );
@@ -698,7 +700,11 @@ export async function uploadAsset(
 ): Promise<UploadResult> {
   const { fetchImpl, warn } = apiIoDefaults(deps);
   const { displayName, displayFilename } = guardFilename(token, file.filename);
-  const { bytes, localDigest } = readValidatedFile(token, file);
+  const { bytes, localDigest } = readValidatedFile(
+    token,
+    file,
+    displayFilename,
+  );
   // displayName (token-redacted) becomes the public asset name (in
   // browser_download_url) and the returned filename (markdown alt).
   const { name: assetName, hex } = safeFilename(displayName);
@@ -710,7 +716,7 @@ export async function uploadAsset(
     assetName,
     bytes,
     file.mime,
-    file.filename,
+    displayFilename,
     fetchImpl,
   );
   const downloadUrl = bindResponseUrl(
@@ -718,7 +724,7 @@ export async function uploadAsset(
     repo,
     tag,
     hex,
-    file.filename,
+    displayFilename,
     asset.browser_download_url,
     warn,
   );
@@ -728,7 +734,7 @@ export async function uploadAsset(
     tag,
     asset.id,
     downloadUrl,
-    file.filename,
+    displayFilename,
     file.mime,
     asset.content_type,
     asset.state,
@@ -740,7 +746,6 @@ export async function uploadAsset(
     tag,
     asset.id,
     downloadUrl,
-    file.filename,
     asset.digest,
     asset.size,
     bytes,
