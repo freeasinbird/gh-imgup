@@ -495,10 +495,14 @@ if (isEntryPoint()) {
     .then((result) => {
       if (result.stdout) process.stdout.write(result.stdout);
       if (result.stderr) process.stderr.write(result.stderr);
-      process.exit(result.exitCode);
+      // Setting exitCode (rather than process.exit()) lets Node drain the
+      // writes just issued before exiting naturally — exit() can terminate
+      // the process before an async pipe write flushes, truncating stdout
+      // while still reporting success (see the 2026-09-23 devlog note).
+      process.exitCode = result.exitCode;
     })
     .catch(() => {
       // run() handles its own errors; this is a last-resort guard.
-      process.exit(1);
+      process.exitCode = 1;
     });
 }
