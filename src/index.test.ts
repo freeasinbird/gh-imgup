@@ -387,6 +387,41 @@ test("an invalid file fails before any network call", async () => {
   assert.equal(calls.length, 0);
 });
 
+test("control chars in a pre-upload validation error are collapsed", async () => {
+  // validateImageFile runs before any upload and echoes the raw filepath (e.g.
+  // "File not found: …"). Those pre-upload paths don't collapse controls
+  // themselves, so the run() catch chokepoint must: a crafted filename carrying
+  // a CSI (U+009B) or other control byte must not forge stderr/CI log lines
+  // (invariants 3 and 7).
+  const { impl, calls } = ghApi();
+  const csiPath = join(dir, `ghost${String.fromCharCode(0x9b)}x.png`);
+  const r = await run([csiPath, "--repo", "o/r"], baseDeps(impl));
+  assert.equal(r.exitCode, 1);
+  assert.match(r.stderr, /File not found: /);
+  assert.doesNotMatch(r.stderr, /\x9b/); // collapsed to a space, not the raw CSI
+  assert.equal(calls.length, 0);
+});
+
+test("control collapsing cannot expose a token with internal spaces", async () => {
+  const token = "secret value";
+  for (const code of [9, 10, 0x9b]) {
+    for (const prefix of ["secret", "%73ecret"]) {
+      const { impl, calls } = ghApi();
+      const path = join(dir, `${prefix}${String.fromCharCode(code)}value.png`);
+      const r = await run([path, "--repo", "o/r"], {
+        ...baseDeps(impl),
+        env: { GITHUB_TOKEN: token },
+      });
+      assert.equal(r.exitCode, 1);
+      assert.equal(
+        r.stderr,
+        "gh-imgup: [error redacted: it referenced the GitHub token]\n",
+      );
+      assert.equal(calls.length, 0);
+    }
+  }
+});
+
 test("the token never reaches stderr on an API error", async () => {
   const { impl } = ghApi({ uploadStatus: () => 403 });
   const r = await run([img("leak.png"), "--repo", "o/r"], baseDeps(impl));
