@@ -1,11 +1,17 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import {
+  mkdirSync,
+  mkdtempSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { after, test } from "node:test";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { run, version } from "./index.js";
 import { json, scriptedFetch } from "./test-support.test.js";
 
@@ -562,4 +568,123 @@ test("a validation error never leaks an ENCODED token to stderr", async () => {
   assert.equal(r.stdout, "");
   assert.doesNotMatch(r.stderr, /ghp/i); // neither literal nor %5F form
   assert.equal(calls.length, 0); // failed before any network call
+});
+
+test("a large --json run flushes its full output through a real pipe before exit", () => {
+  // Regression for the process.exit()-vs-pipe-drain race: process.exit()
+  // tears down the process regardless of pending async stdout writes, so a
+  // payload that overflows the OS pipe buffer can be silently truncated even
+  // though the process reports exit 0. This spawns the real compiled entry
+  // point (not run() in-process) so the real isEntryPoint() guard, the real
+  // write, and the real exit path are all exercised end to end, with fetch
+  // mocked offline via a `--import` preload.
+  //
+  // N=300 (~86KB of stdout) is not sufficient here: this sandbox's effective
+  // pipe buffering before backpressure kicks in was measured at ~146KB, so
+  // reverting the fix still passed a 300-file run without truncating.
+  // N=2000 (~500KB+) was measured to reliably reproduce the pre-fix
+  // truncation, giving a solid margin over that observed threshold; that is
+  // the scale asserted here, not just the >65536-byte floor.
+  const N = 2000;
+  const flushDir = join(dir, "flush-large");
+  mkdirSync(flushDir);
+  // Pass basenames (with cwd: flushDir below), not fully qualified paths:
+  // 2000 absolute paths would deterministically exceed Windows' 32,767-char
+  // process command-line limit and fail npm test before the child even starts.
+  const basenames: string[] = [];
+  for (let i = 0; i < N; i++) {
+    const name = `f${i}.png`;
+    writeFileSync(join(flushDir, name), Buffer.from(`PNGDATA-${i}`));
+    basenames.push(name);
+  }
+
+  // A minimal offline GitHub API: the one release lookup and one upload per
+  // file that the upload flow makes for this scenario. Anything else throws,
+  // so an unexpected call fails the run loudly instead of hanging or
+  // silently mismatching.
+  const preloadSrc = `import { createHash } from "node:crypto";
+
+const TAG = "_gh-imgup";
+let nextId = 1000;
+
+globalThis.fetch = async (url, init = {}) => {
+  const u = new URL(String(url));
+  const method = init.method ?? "GET";
+  if (method === "GET" && u.pathname.includes("/releases/tags/")) {
+    return new Response(
+      JSON.stringify({ id: 99, prerelease: true, draft: false, tag_name: TAG }),
+      { status: 200, headers: { "Content-Type": "application/json" } },
+    );
+  }
+  if (method === "POST" && u.hostname === "uploads.github.com") {
+    const name = u.searchParams.get("name") ?? "";
+    const body = Buffer.isBuffer(init.body) ? init.body : Buffer.from(init.body ?? "");
+    const digest = "sha256:" + createHash("sha256").update(body).digest("hex");
+    return new Response(
+      JSON.stringify({
+        id: nextId++,
+        browser_download_url: "https://github.com/o/r/releases/download/" + TAG + "/" + name,
+        digest,
+      }),
+      { status: 201, headers: { "Content-Type": "application/json" } },
+    );
+  }
+  throw new Error("unexpected fetch " + method + " " + String(url));
+};
+`;
+  const preload = join(flushDir, "mock-fetch.mjs");
+  writeFileSync(preload, preloadSrc);
+
+  const distIndex = fileURLToPath(new URL("./index.js", import.meta.url));
+  const stdout = execFileSync(
+    process.execPath,
+    [
+      "--import",
+      pathToFileURL(preload).href,
+      distIndex,
+      ...basenames,
+      "--repo",
+      "o/r",
+      "--json",
+    ],
+    {
+      cwd: flushDir,
+      env: { ...process.env, GITHUB_TOKEN: "ghp_SYNTHETIC_TEST_TOKEN" },
+      encoding: "utf8",
+      maxBuffer: 8 * 1024 * 1024,
+      timeout: 60_000,
+      killSignal: "SIGKILL",
+    },
+  );
+
+  assert.ok(
+    Buffer.byteLength(stdout, "utf8") > 65536,
+    `expected >65536 bytes, got ${Buffer.byteLength(stdout, "utf8")}`,
+  );
+  // The 65536-byte floor alone doesn't prove this run cleared the pipe's
+  // actual buffering threshold (measured at ~146KB in this sandbox, well
+  // above the commonly-assumed 64KiB) — assert a margin over that measured
+  // value so this test can't pass on a run that never triggered backpressure.
+  assert.ok(
+    Buffer.byteLength(stdout, "utf8") > 200_000,
+    `expected >200000 bytes (margin over the measured ~146KB threshold), got ${Buffer.byteLength(stdout, "utf8")}`,
+  );
+  const parsed = JSON.parse(stdout);
+  assert.ok(Array.isArray(parsed));
+  assert.equal(parsed.length, N);
+  parsed.forEach((entry: Record<string, unknown>, i: number) => {
+    const expectedDigest = `sha256:${createHash("sha256")
+      .update(Buffer.from(`PNGDATA-${i}`))
+      .digest("hex")}`;
+    assert.equal(entry.filename, `f${i}.png`, `filename[${i}]`);
+    assert.equal(entry.repo, "o/r", `repo[${i}]`);
+    assert.equal(entry.digest, expectedDigest, `digest[${i}]`);
+    assert.match(
+      entry.url as string,
+      new RegExp(
+        `^https://github\\.com/o/r/releases/download/_gh-imgup/f${i}-[0-9a-f]{8}\\.png$`,
+      ),
+      `url[${i}]`,
+    );
+  });
 });

@@ -495,10 +495,10 @@ if (isEntryPoint()) {
     .then((result) => {
       if (result.stdout) process.stdout.write(result.stdout);
       if (result.stderr) process.stderr.write(result.stderr);
-      process.exit(result.exitCode);
+      process.exitCode = result.exitCode;
     })
     .catch(() => {
       // run() handles its own errors; this is a last-resort guard.
-      process.exit(1);
+      process.exitCode = 1;
     });
 }
