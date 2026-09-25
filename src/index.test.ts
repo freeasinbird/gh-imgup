@@ -5,7 +5,7 @@ import { mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { after, test } from "node:test";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { run, version } from "./index.js";
 import { json, scriptedFetch } from "./test-support.test.js";
 
@@ -167,6 +167,66 @@ test("the published bin runs through a .bin symlink (npm/npx)", () => {
     encoding: "utf8",
   });
   assert.equal(out.trim(), version());
+});
+
+test("large --json output is not truncated by process.exit() racing a piped write", async () => {
+  // Regression test for the exit()-before-flush truncation bug: only a real
+  // spawned process writing to a real OS pipe can reproduce it (an in-process
+  // run() call never goes through isEntryPoint()'s process.exit()/exitCode
+  // path at all). Cross 64 KiB — the pipe's kernel buffer size — the way the
+  // reported issue did, with 300 fixture files.
+  const FILE_COUNT = 300;
+  const paths = Array.from({ length: FILE_COUNT }, (_, i) =>
+    img(`bulk-${i}.png`, `PNGDATA-${i}`),
+  );
+
+  // In-process baseline with the same files and an equivalent scripted API,
+  // to compare the spawned process's output against a known-good length.
+  const baseline = await run(
+    [...paths, "--repo", "o/r", "--json"],
+    baseDeps(ghApi().impl),
+  );
+  assert.equal(baseline.exitCode, 0);
+  const baselineBytes = Buffer.byteLength(baseline.stdout, "utf8");
+  assert.ok(
+    baselineBytes > 64 * 1024,
+    `fixture must exceed the 64 KiB pipe buffer (got ${baselineBytes})`,
+  );
+
+  // Real spawned process: the compiled entry point, piped stdio, network
+  // mocked via a --import preload (fetch-preload.test.ts) so no real socket
+  // opens. If process.exit() raced the stdout write, this would throw on a
+  // non-zero exit and/or the captured output would be a truncated non-JSON
+  // fragment shorter than the baseline.
+  const indexJs = fileURLToPath(new URL("./index.js", import.meta.url));
+  const preload = fileURLToPath(
+    new URL("./fetch-preload.test.js", import.meta.url),
+  );
+  const out = execFileSync(
+    process.execPath,
+    [
+      "--import",
+      pathToFileURL(preload).href,
+      indexJs,
+      ...paths,
+      "--repo",
+      "o/r",
+      "--json",
+    ],
+    {
+      encoding: "utf8",
+      env: { ...process.env, GITHUB_TOKEN: TOKEN, GH_IMGUP_MOCK_FETCH: "1" },
+      maxBuffer: 8 * 1024 * 1024,
+    },
+  );
+
+  assert.equal(Buffer.byteLength(out, "utf8"), baselineBytes);
+  const parsed = JSON.parse(out);
+  assert.equal(parsed.length, FILE_COUNT);
+  for (const obj of parsed) {
+    assert.equal(obj.repo, "o/r");
+    assert.match(obj.digest, /^sha256:[0-9a-f]{64}$/);
+  }
 });
 
 test("argument errors fail with empty stdout and exit 1", async () => {
