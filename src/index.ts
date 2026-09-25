@@ -495,10 +495,16 @@ if (isEntryPoint()) {
     .then((result) => {
       if (result.stdout) process.stdout.write(result.stdout);
       if (result.stderr) process.stderr.write(result.stderr);
-      process.exit(result.exitCode);
+      // Setting exitCode (not calling exit()) lets Node finish flushing the
+      // writes above before it exits on its own — process.exit() tears the
+      // process down immediately, which can truncate a piped stdout/stderr
+      // write still in flight (invariant 7: exit 0 must mean the full
+      // machine-parseable payload was delivered, not a partial one).
+      process.exitCode = result.exitCode;
     })
     .catch(() => {
-      // run() handles its own errors; this is a last-resort guard.
-      process.exit(1);
+      // run() handles its own errors; this is a last-resort guard. Same
+      // flush-before-exit reasoning as above.
+      process.exitCode = 1;
     });
 }
