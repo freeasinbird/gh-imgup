@@ -262,18 +262,21 @@ async function bestEffortDelete(
 }
 
 /**
- * GET a release asset by id and parse its body, or `null` on any failure — a
- * network throw, a non-200 status, or an unparseable body. Makes no acceptance
- * decision of its own: `verifiedDelete` (URL-only, `isUsableAssetUrl`-checked)
- * and cleanup's `idStillHostsUrl` (URL+name, no shape check) apply their own,
- * intentionally different, policies to the result.
+ * GET a release asset by id and parse its body. Throws a sanitized Error on
+ * any failure — a network throw, a non-200 status, or an unparseable body —
+ * since none of those is a legitimate "confirmed, doesn't match" answer, and
+ * conflating them with a real mismatch would let a transport failure look
+ * like a verified non-match. Makes no acceptance decision of its own:
+ * `verifiedDelete` (URL-only, `isUsableAssetUrl`-checked) and cleanup's
+ * `idStillHostsUrl` (URL+name, no shape check) apply their own, intentionally
+ * different, policies to the result.
  */
 export async function fetchAssetById(
   token: string,
   repo: Repo,
   assetId: number,
   fetchImpl: typeof fetch,
-): Promise<{ browser_download_url?: unknown; name?: unknown } | null> {
+): Promise<{ browser_download_url?: unknown; name?: unknown }> {
   let res: Response;
   try {
     res = await authedFetch(
@@ -282,14 +285,33 @@ export async function fetchAssetById(
       {},
       fetchImpl,
     );
-  } catch {
-    return null;
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    throw new Error(
+      sanitize(token, `Re-check asset ${assetId} failed: ${msg}`),
+    );
   }
-  if (res.status !== 200) return null;
-  return (await res.json().catch(() => null)) as {
+  if (res.status !== 200) {
+    throw await apiError(
+      token,
+      res,
+      `Re-check asset ${assetId}`,
+      "contents:read",
+    );
+  }
+  const got = (await res.json().catch(() => null)) as {
     browser_download_url?: unknown;
     name?: unknown;
   } | null;
+  if (got === null || typeof got !== "object") {
+    throw new Error(
+      sanitize(
+        token,
+        `Re-check asset ${assetId} failed: response body was not valid JSON`,
+      ),
+    );
+  }
+  return got;
 }
 
 /**
@@ -324,8 +346,14 @@ async function verifiedDelete(
         `⚠ Could not confirm asset ${assetId} (${context}) is the one we uploaded; not deleting it. Run gh-imgup --cleanup to remove orphans.\n`,
       ),
     );
-  const got = await fetchAssetById(token, repo, assetId, fetchImpl);
-  const gotUrl = got?.browser_download_url;
+  let got: { browser_download_url?: unknown; name?: unknown };
+  try {
+    got = await fetchAssetById(token, repo, assetId, fetchImpl);
+  } catch {
+    orphanWarn();
+    return;
+  }
+  const gotUrl = got.browser_download_url;
   if (!isUsableAssetUrl(gotUrl, repo, tag) || gotUrl !== expectedUrl) {
     orphanWarn();
     return;
