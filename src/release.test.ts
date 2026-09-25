@@ -1089,26 +1089,32 @@ test("deleteAsset resolves on 204 and throws otherwise", async () => {
   );
 });
 
-test("fetchAssetById returns null when the fetch throws", async () => {
+test("fetchAssetById throws when the fetch throws", async () => {
   const { impl } = scriptedFetch(() => {
     throw new Error("network down");
   });
-  const got = await fetchAssetById(TOKEN, REPO, 8, impl);
-  assert.equal(got, null);
+  await assert.rejects(
+    () => fetchAssetById(TOKEN, REPO, 8, impl),
+    /Re-check asset 8 failed: network down/,
+  );
 });
 
-test("fetchAssetById returns null on a non-200 status", async () => {
+test("fetchAssetById throws on a non-200 status", async () => {
   const { impl } = scriptedFetch(() => json({ message: "nf" }, 404));
-  const got = await fetchAssetById(TOKEN, REPO, 8, impl);
-  assert.equal(got, null);
+  await assert.rejects(
+    () => fetchAssetById(TOKEN, REPO, 8, impl),
+    /Re-check asset 8 failed: 404/,
+  );
 });
 
-test("fetchAssetById returns null on a 200 with an unparseable body", async () => {
+test("fetchAssetById throws on a 200 with an unparseable body", async () => {
   const { impl } = scriptedFetch(
     () => new Response("<html>not json</html>", { status: 200 }),
   );
-  const got = await fetchAssetById(TOKEN, REPO, 8, impl);
-  assert.equal(got, null);
+  await assert.rejects(
+    () => fetchAssetById(TOKEN, REPO, 8, impl),
+    /Re-check asset 8 failed: response body was not valid JSON/,
+  );
 });
 
 test("fetchAssetById returns the parsed body on a 200 with a parseable body", async () => {

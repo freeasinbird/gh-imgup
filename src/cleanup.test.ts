@@ -40,10 +40,13 @@ interface ApiOpts {
   releaseBodies?: string[];
   fail?: string;
   deleteStatus?: number;
+  /** How many DELETE calls succeed (204) before deleteStatus kicks in; default 0 (fail every call). */
+  deleteFailAfter?: number;
   assetGet?: (id: number) => Response;
 }
 function api(opts: ApiOpts = {}) {
   const deleted: number[] = [];
+  let deleteCalls = 0;
   const bodies = (xs?: string[]) => (xs ?? []).map((b) => ({ body: b }));
   const { impl, calls } = scriptedFetch((req) => {
     const u = new URL(req.url);
@@ -121,8 +124,11 @@ function api(opts: ApiOpts = {}) {
         : json({ message: "nf" }, 404);
     }
     if (req.method === "DELETE" && /\/releases\/assets\/\d+$/.test(p)) {
-      if ((opts.deleteStatus ?? 204) !== 204)
-        return json({ message: "no" }, opts.deleteStatus ?? 500);
+      deleteCalls += 1;
+      const failing =
+        (opts.deleteStatus ?? 204) !== 204 &&
+        deleteCalls > (opts.deleteFailAfter ?? 0);
+      if (failing) return json({ message: "no" }, opts.deleteStatus ?? 500);
       deleted.push(Number(p.split("/").pop()));
       return new Response(null, { status: 204 });
     }
@@ -451,6 +457,80 @@ test("skips deletion when the re-fetched id no longer hosts the matched URL", as
   );
   assert.deepEqual(a.deleted, []); // not deleted — id/URL mismatch
   assert.match(warns.join(""), /skipped/);
+});
+
+test("a re-fetch failure (non-200) aborts the delete loop and reports 0 deleted", async () => {
+  // A 403/5xx re-fetch is a transport/status failure, not a confirmed
+  // mismatch — it must not be reported as "skipped ... id no longer
+  // matches", and cleanup() must reject rather than resolve normally.
+  const A = asset(1, "orphan.png"); // unreferenced
+  const a = api({
+    assets: [A],
+    assetGet: () => json({ message: "rate limited" }, 403),
+  });
+  const warns: string[] = [];
+  await assert.rejects(
+    () =>
+      cleanup(
+        TOKEN,
+        REPO,
+        TAG,
+        baseDeps(a.impl, { warn: (m: string) => warns.push(m) }),
+      ),
+    /Re-check asset 1 failed: 403/,
+  );
+  assert.deepEqual(a.deleted, []);
+  const joined = warns.join("");
+  assert.match(joined, /Deleted 0 asset\(s\)\./);
+  assert.doesNotMatch(joined, /skipped/);
+  assert.doesNotMatch(joined, /id no longer matches/);
+});
+
+test("a re-fetch network throw aborts the delete loop and reports 0 deleted", async () => {
+  const A = asset(1, "orphan.png"); // unreferenced
+  const a = api({
+    assets: [A],
+    assetGet: () => {
+      throw new Error("network down");
+    },
+  });
+  const warns: string[] = [];
+  await assert.rejects(
+    () =>
+      cleanup(
+        TOKEN,
+        REPO,
+        TAG,
+        baseDeps(a.impl, { warn: (m: string) => warns.push(m) }),
+      ),
+    /Re-check asset 1 failed: network down/,
+  );
+  assert.deepEqual(a.deleted, []);
+  const joined = warns.join("");
+  assert.match(joined, /Deleted 0 asset\(s\)\./);
+  assert.doesNotMatch(joined, /skipped/);
+});
+
+test("a mid-loop DELETE failure reports the partial count before rejecting", async () => {
+  const A = asset(1, "orphan-a.png");
+  const B = asset(2, "orphan-b.png");
+  // The first DELETE (A) succeeds; the second (B) and any further calls fail.
+  const a = api({ assets: [A, B], deleteStatus: 500, deleteFailAfter: 1 });
+  const warns: string[] = [];
+  await assert.rejects(
+    () =>
+      cleanup(
+        TOKEN,
+        REPO,
+        TAG,
+        baseDeps(a.impl, { warn: (m: string) => warns.push(m) }),
+      ),
+    /Delete asset \d+ failed: 500/,
+  );
+  assert.deepEqual(a.deleted, [1]); // only A confirmed deleted
+  const joined = warns.join("");
+  assert.match(joined, /deleted orphan-a\.png/);
+  assert.match(joined, /Deleted 1 asset\(s\)\./);
 });
 
 test("a declined confirmation deletes nothing", async () => {

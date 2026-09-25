@@ -412,10 +412,12 @@ async function scanReferences(
  * matched, just before a destructive delete. The assets list pairs id with
  * browser_download_url, but a malformed/stale entry could pair our unreferenced
  * URL with a DIFFERENT asset's id — deleting by it would remove a live asset.
- * Mirrors uploadAsset's verifiedDelete: a non-200, unparseable body, or a URL/
- * name that no longer matches means skip (never delete by an id we can't
- * re-confirm). Checking the name too — not just the URL — re-binds both fields at
- * the destructive step even if the re-fetch response is itself inconsistent.
+ * A genuine URL/name mismatch on a successful re-fetch means skip (never
+ * delete by an id we can't re-confirm); checking the name too — not just the
+ * URL — re-binds both fields at the destructive step even if the re-fetch
+ * response is itself inconsistent. A re-fetch failure (network, non-200, or
+ * unparseable body) is not a confirmed mismatch — `fetchAssetById` throws for
+ * those, and the caller lets that propagate rather than treating it as skip.
  */
 async function idStillHostsUrl(
   token: string,
@@ -424,7 +426,7 @@ async function idStillHostsUrl(
   fetchImpl: typeof fetch,
 ): Promise<boolean> {
   const got = await fetchAssetById(token, repo, asset.id, fetchImpl);
-  return got?.browser_download_url === asset.url && got?.name === asset.name;
+  return got.browser_download_url === asset.url && got.name === asset.name;
 }
 
 const SCOPE_NOTE =
@@ -611,19 +613,26 @@ export async function cleanup(
   }
 
   let deleted = 0;
-  for (const a of unreferenced) {
-    // Re-confirm the id still hosts the URL we judged unreferenced before the
-    // destructive delete — a mismatched/stale list entry must not delete a live
-    // asset by an id we matched to a different URL.
-    if (!(await idStillHostsUrl(token, repo, a, fetchImpl))) {
-      say(
-        `  skipped ${redactField(a.name, token)} (id no longer matches; re-run --cleanup)\n`,
-      );
-      continue;
+  // try/finally so a re-fetch failure (idStillHostsUrl now throws rather than
+  // treating a transport/status error as "doesn't match") or a mid-loop
+  // deleteAsset failure still reports how many deletions were confirmed before
+  // the loop aborts — the error itself still propagates out of cleanup().
+  try {
+    for (const a of unreferenced) {
+      // Re-confirm the id still hosts the URL we judged unreferenced before the
+      // destructive delete — a mismatched/stale list entry must not delete a live
+      // asset by an id we matched to a different URL.
+      if (!(await idStillHostsUrl(token, repo, a, fetchImpl))) {
+        say(
+          `  skipped ${redactField(a.name, token)} (id no longer matches; re-run --cleanup)\n`,
+        );
+        continue;
+      }
+      await deleteAsset(token, repo, a.id, { fetchImpl });
+      deleted += 1;
+      say(`  deleted ${redactField(a.name, token)}\n`);
     }
-    await deleteAsset(token, repo, a.id, { fetchImpl });
-    deleted += 1;
-    say(`  deleted ${redactField(a.name, token)}\n`);
+  } finally {
+    say(`Deleted ${deleted} asset(s).\n`);
   }
-  say(`Deleted ${deleted} asset(s).\n`);
 }
