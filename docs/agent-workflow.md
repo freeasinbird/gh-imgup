@@ -52,10 +52,10 @@ follow this full sequence:
    Address findings that belong to this PR, or record the bounded timeout or
    no-review result with its baseline.
 
-   One exception applies when §review-convergence allows one last push for
-   locally verified non-blockers. Do not wait for the re-review that push
-   triggers. Record that push as the new baseline and say the human should
-   check the final pass before merge.
+   The same wait applies after the one last push §review-convergence allows.
+   Wait for the review that push triggers, or for the bounded timeout, before
+   step 7. A blocker in that review reopens fix rounds. If it has none, defer
+   or decline its findings and do not push again.
 
 7. **Stop and summarize.** State that the PR is open and green. Name anything
    the reviewer should inspect closely. Leave merging, branch cleanup, and
@@ -199,8 +199,17 @@ another review round is required.
 
 - **Continue for every blocker.** Correctness, security, data loss, broken
   invariants, and red CI always earn another round. Decide severity yourself.
-  The reviewer's tag is evidence, not the verdict. When unsure, treat the
-  finding as blocking.
+  The reviewer's tag is evidence, not the verdict. When a reachable defect's
+  severity is unsure, treat it as blocking.
+- **Test reachability before adding a guard.** A finding that asks for a guard
+  or other behavioral change is real only when you can name what produces the
+  failing state. Name an input the interface admits at a public or untrusted
+  boundary, or an existing caller for internal code. The harm must also matter
+  at the expected scale and trust boundary. A guard for a state you cannot
+  reach is hardening, not a fix. Decline it with a one-line reason naming the
+  unreachable path, the invariant that holds, or why the harm is immaterial.
+  When reachability is unsure, trace the callers or run the case before
+  patching.
 - **Handle later non-blockers without another full review.** After the
   early rounds, choose one outcome for each valid non-blocker:
 
@@ -216,9 +225,20 @@ another review round is required.
 - **Stop when review stops making progress.** This happens when the same
   finding returns after a correct, complete fix, or fixes create new problems
   without net progress. Pause and show the human what is stuck.
+- **Notice when the reviewer is reviewing your hardening.** From the third fix
+  round, check two signals: most findings cite lines an earlier round added,
+  and recent fixes are all guards you traced no reaching caller for. When both
+  hold, stop pushing guards. Decline only what fails that test, list earlier
+  hardening that fails it as removal candidates, and show the human. Keep
+  fixing reachable, material defects; the round count alone never turns one
+  into a decline.
+- **Judge a posted review; don't treat it as proof that work remains.** A
+  reviewer that posts only on findings has a floor on new code.
 - **Reassess after many rounds with blockers.** Record whether to continue or
-  ask a human. Revisit that decision if blocker rounds keep accumulating. Do
-  not stop silently or continue on autopilot.
+  ask a human. A go needs blockers that passed the reachability and
+  materiality test, not only shrinking counts. Revisit that decision if
+  blocker rounds keep accumulating. Do not stop silently or continue on
+  autopilot.
 - **Record an outcome for every finding.** Before handoff, mark each one fixed,
   declined, deferred, or explicitly outstanding. Record why no blocker
   required another round. The human decides how to handle outstanding
@@ -229,8 +249,13 @@ another review round is required.
 
 ## pre-push-review
 
-For non-trivial work, or any repository without an external bot reviewer, seek
-fresh eyes before pushing.
+Seek fresh eyes before pushing risky work, or any work in a repository without
+an external bot reviewer. Risky work touches a destructive path, a
+credential-leak surface, or a returned-object trust boundary, changes a
+contract or public interface, or changes behavior without tests. A large
+mechanical change (a rename, move, format, or generated update) that does
+none of those relies on CI and the recorded bot reviewer, however many files
+it touches.
 
 - When the platform supports delegation and session policy permits it, ask a
   reviewer in a fresh session to look for reasons the change may be wrong. Give
@@ -239,7 +264,7 @@ fresh eyes before pushing.
 - When delegation is unavailable or needs permission you don't have, skip it
   and rely on the external bot or human. You may ask the user first.
 - A same-model delegate is only partly independent and costs tokens. Match the
-  review effort to risk, and skip this step for trivial or mechanical work.
+  review effort to risk.
 
 Never write a step that assumes the running platform can delegate.
 
