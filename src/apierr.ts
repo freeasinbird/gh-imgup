@@ -120,13 +120,17 @@ export function redactBody(token: string, body: string): string {
  * Build a sanitized Error from a non-ok API response (token stripped — literal
  * and encoded — body truncated). `scope` names the permission the operation
  * needs, surfaced on 401/403 since the API doesn't make the missing scope
- * derivable from the response.
+ * derivable from the response. `notFoundHint`, when given, is appended on a
+ * 404 the same way — it must be caller-supplied static prose plus already-
+ * validated strings (never response-derived), since it bypasses no
+ * redaction step of its own.
  */
 export async function apiError(
   token: string,
   res: Response,
   context: string,
   scope = "contents:write",
+  notFoundHint?: string,
 ): Promise<Error> {
   let detail = "";
   try {
@@ -137,7 +141,9 @@ export async function apiError(
   const hint =
     res.status === 401 || res.status === 403
       ? ` (the token may be invalid or lack ${scope})`
-      : "";
+      : res.status === 404 && notFoundHint
+        ? ` (${notFoundHint})`
+        : "";
   // statusText is response-controlled too (a proxy can set the reason phrase),
   // so it gets the same decode-aware redaction as the body — the last echoed
   // response value in this message that literal sanitize() alone would miss.

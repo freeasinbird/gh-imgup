@@ -145,3 +145,28 @@ test("apiError adds no scope hint on a non-auth status", async () => {
   const err = await apiError(TOKEN, res, "Do thing");
   assert.doesNotMatch(err.message, /the token may be invalid/);
 });
+
+test("apiError adds no 404 hint when notFoundHint is omitted", async () => {
+  const res = new Response("nope", { status: 404, statusText: "Not Found" });
+  const err = await apiError(TOKEN, res, "Do thing");
+  assert.match(err.message, /Do thing failed: 404 Not Found/);
+  assert.doesNotMatch(err.message, /\(/);
+});
+
+test("apiError appends a 404 notFoundHint and still redacts a token in the body", async () => {
+  const res = new Response(`leak ${TOKEN} here`, {
+    status: 404,
+    statusText: "Not Found",
+  });
+  const err = await apiError(
+    TOKEN,
+    res,
+    "Create release",
+    undefined,
+    'repo "o/r" was not found, or the token can\'t access it',
+  );
+  assert.match(err.message, /Create release failed: 404 Not Found/);
+  assert.match(err.message, /\(repo "o\/r" was not found/);
+  assert.doesNotMatch(err.message, new RegExp(TOKEN));
+  assert.match(err.message, /\[REDACTED\]/);
+});

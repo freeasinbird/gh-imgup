@@ -180,6 +180,22 @@ test("ensureRelease surfaces a sanitized scope hint on 403", async () => {
   );
 });
 
+test("ensureRelease explains a create-release 404 as a repo-access problem", async () => {
+  const { impl } = scriptedFetch(() => json({ message: "Not Found" }, 404));
+  await assert.rejects(
+    () => ensureRelease("ghp_SECRET", REPO, "_gh-imgup", { fetchImpl: impl }),
+    (err: Error) => {
+      assert.match(err.message, /Create release failed: 404/);
+      assert.match(err.message, /o\/r/);
+      assert.match(err.message, /typo/i);
+      assert.match(err.message, /access|private/i);
+      assert.match(err.message, /GITHUB_TOKEN/);
+      assert.doesNotMatch(err.message, /ghp_SECRET/);
+      return true;
+    },
+  );
+});
+
 const dir = mkdtempSync(join(tmpdir(), "gh-imgup-release-"));
 after(() => rmSync(dir, { recursive: true, force: true }));
 
