@@ -180,6 +180,15 @@ export async function ensureRelease(
       ),
     );
   }
+  if (created.status === 404) {
+    throw await apiError(
+      token,
+      created,
+      "Create release",
+      undefined,
+      `repo "${repo.owner}/${repo.name}" was not found, or the token can't access it — check --repo for a typo, confirm the repo's visibility, and note a GitHub Actions GITHUB_TOKEN only covers its own repo`,
+    );
+  }
   throw await apiError(token, created, "Create release");
 }
 
