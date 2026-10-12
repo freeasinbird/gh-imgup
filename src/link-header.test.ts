@@ -48,9 +48,20 @@ test("rawNextLink fails closed (throws) on a malformed Link header", () => {
     "<https://api.github.com/x>; rel",
     "<https://api.github.com/x>; rel=",
     '<https://api.github.com/x>; rel=""',
+    // Unquoted rel values that aren't a single valid RFC 7230 token: today
+    // these are captured as a literal (non-matching) relation type, so
+    // rawNextLink silently returns null instead of failing closed.
+    "<a>; rel=next<b>",
+    "<a>; rel=nex t",
+    '<a>; rel="next"x',
   ]) {
     assert.throws(() => rawNextLink(bad), /unparseable Link header/, bad);
   }
+});
+
+test("rawNextLink still resolves a valid unquoted rel=next", () => {
+  const u = "https://x";
+  assert.equal(rawNextLink(`<${u}>; rel=next`), u);
 });
 
 test("parseLinkHeader returns one entry per link-value with its full rel set", () => {
