@@ -4,6 +4,12 @@
  * referenced there). */
 const LINK_PARSE_ERROR = "unparseable Link header";
 
+// RFC 7230 tchar: 1*tchar forms a valid unquoted token. Used only to validate
+// an unquoted `rel` value — a garbled unquoted `rel` must fail closed rather
+// than be read as a literal (non-matching) relation type, which would make
+// `rawNextLink` silently report "no next page" on the destructive path.
+const TOKEN_RE = /^[!#$%&'*+\-.^_`|~0-9A-Za-z]+$/;
+
 /**
  * Parse an RFC 8288 `Link` header into its link-values — each a `<uri-reference>`
  * followed by `;`-separated parameters. A character scan rather than splitting on
@@ -53,6 +59,7 @@ export function parseLinkHeader(
       }
       const name = header.slice(nameStart, i).trim().toLowerCase();
       let value = "";
+      let unquoted = false;
       if (i < n && header[i] === "=") {
         i += 1;
         skipOws();
@@ -71,7 +78,15 @@ export function parseLinkHeader(
           const vStart = i;
           while (i < n && header[i] !== ";" && header[i] !== ",") i += 1;
           value = header.slice(vStart, i).trim();
+          unquoted = true;
         }
+      }
+      // An unquoted `rel` value must itself be a single valid RFC 7230 token
+      // (tchar excludes whitespace and delimiters). A quoted `rel` is exempt:
+      // quoting already permits internal whitespace (RFC 8288), and the
+      // multi-token split below applies only to the quoted path.
+      if (name === "rel" && unquoted && !TOKEN_RE.test(value)) {
+        throw new Error(LINK_PARSE_ERROR);
       }
       if (name === "rel") {
         // RFC 8288 says a repeated `rel` keeps the FIRST occurrence. Rather than
