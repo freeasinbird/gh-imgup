@@ -400,6 +400,15 @@ enforced. Violating one is a security regression, not a style nit.
   non-`main` stacked base can be skipped until you fire one (toggling draft to
   ready via `gh pr ready --undo` then `gh pr ready` is the convention-respecting
   trigger). Per-finding response conventions live under Pull requests.
+- **Use `freeasinbird/gh-imgup` on GitHub for forge calls.** This project
+  has the following forge record:
+
+  - **Host:** `github.com`.
+  - **Slug:** `freeasinbird/gh-imgup`. Pass `--repo freeasinbird/gh-imgup`
+    to `gh`; never derive the owner from a sibling project.
+  - **Consumers:** `await-pr-review`, `merge-cleanup`, `self-merge`, and
+    `visual-evidence` read this record before inferring a repository from a
+    remote.
 - **Versioning: `0.x` until the contract is deliberately frozen at `1.0.0`.**
   The first publish is `0.x` (a soft launch while real-world usage accrues). The
   CLI surface and the machine-output contract (invariant 7) are stable by intent
