@@ -400,6 +400,15 @@ enforced. Violating one is a security regression, not a style nit.
   non-`main` stacked base can be skipped until you fire one (toggling draft to
   ready via `gh pr ready --undo` then `gh pr ready` is the convention-respecting
   trigger). Per-finding response conventions live under Pull requests.
+- **Use `freeasinbird/gh-imgup` on GitHub for forge calls.** This project
+  has the following forge record:
+
+  - **Host:** `github.com`.
+  - **Slug:** `freeasinbird/gh-imgup`. Pass `--repo freeasinbird/gh-imgup`
+    to `gh`; never derive the owner from a sibling project.
+  - **Consumers:** `await-pr-review`, `merge-cleanup`, `self-merge`, and
+    `visual-evidence` read this record before inferring a repository from a
+    remote.
 - **Versioning: `0.x` until the contract is deliberately frozen at `1.0.0`.**
   The first publish is `0.x` (a soft launch while real-world usage accrues). The
   CLI surface and the machine-output contract (invariant 7) are stable by intent
@@ -602,9 +611,14 @@ change.
 - **Self-review the full diff in the PR files view.** Look for stray changes,
   debug code, scope creep, and accidental files. This catches accidental
   changes; it doesn't check whether the solution is correct.
-- **Repeat integration checks when the base moves.** CI, final diff review,
-  and readiness count only for the base commit you checked. Repeat all three
-  if the base changes.
+- **Let the landing check repeat integration checks when the base moves.** A
+  required check that must pass on the branch updated to the tip, a merge
+  queue, or a land command reruns CI on the branch combined with the tip. It
+  doesn't review: a refresh you push restarts the review watch and still needs
+  its diff read, by the recorded automated reviewer's pass or by your
+  self-review. Without a landing check, repeat CI, final diff review, and
+  readiness by hand. After a conflicted rebase, read `git range-diff` as
+  `docs/agent-workflow.md` §handing-off describes.
 - **Use fresh eyes for substantive review.** Reviewing your own work in the
   same conversation shares the author's blind spots. A review in a fresh
   conversation is more independent. A bot from another provider or a human is
