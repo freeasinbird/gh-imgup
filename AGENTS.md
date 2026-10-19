@@ -399,16 +399,19 @@ enforced. Violating one is a security regression, not a style nit.
   tracking a PR on an open / ready / `@codex review` event, so a PR opened on a
   non-`main` stacked base can be skipped until you fire one (toggling draft to
   ready via `gh pr ready --undo` then `gh pr ready` is the convention-respecting
-  trigger). Per-finding response conventions live under Pull requests.
+  trigger). The bot's review-summary comment carries the completion marker
+  `codex-pull-request-review-summary` and reports review status and commit
+  (observed on PR #128). Per-finding response conventions live under Pull
+  requests.
 - **Use `freeasinbird/gh-imgup` on GitHub for forge calls.** This project
   has the following forge record:
 
   - **Host:** `github.com`.
   - **Slug:** `freeasinbird/gh-imgup`. Pass `--repo freeasinbird/gh-imgup`
     to `gh`; never derive the owner from a sibling project.
-  - **Consumers:** `await-pr-review`, `merge-cleanup`, `self-merge`, and
-    `visual-evidence` read this record before inferring a repository from a
-    remote.
+  - **Consumers:** `await-pr-review`, `land-approved-prs`, `merge-cleanup`,
+    and `visual-evidence` read this record before inferring a repository
+    from a remote.
 - **Versioning: `0.x` until the contract is deliberately frozen at `1.0.0`.**
   The first publish is `0.x` (a soft launch while real-world usage accrues). The
   CLI surface and the machine-output contract (invariant 7) are stable by intent
@@ -677,6 +680,11 @@ PR, read `docs/agent-workflow.md` §handing-off and follow its sequence:
 4. Self-review the final diff.
 5. Close the watch by handling findings or recording its bounded timeout.
 6. Stop and summarize for the human reviewer.
+
+Once the approver approves a PR to land, stop pushing to it unless you are the
+landing batch. Turn off any auto-fix, CI repair, or review watch the platform
+runs for it, where the platform offers that control; otherwise tell the
+approver which automation still runs.
 
 If the user asks you to merge, read
 `docs/agent-workflow.md` §merge-and-resync first and follow it step by step.
