@@ -412,6 +412,19 @@ enforced. Violating one is a security regression, not a style nit.
   - **Consumers:** `await-pr-review`, `land-approved-prs`, `merge-cleanup`,
     and `visual-evidence` read this record before inferring a repository
     from a remote.
+- **Land approved PRs by label.** This project has the following landing
+  record:
+
+  - **Mechanism:** `label`.
+  - **Approval:** `approved`, added by a collaborator with the Approver
+    permission; agents never add it.
+  - **Hand-back:** `needs-human`.
+  - **Approver permission:** `write`.
+  - **Stale lock age:** `240` minutes.
+  - **Base-advance checks:** none.
+  - **Reviewer:** `chatgpt-codex-connector`.
+  - **Reviewer completion marker:** `codex-pull-request-review-summary`.
+  - **Consumer:** `land-approved-prs`.
 - **Versioning: `0.x` until the contract is deliberately frozen at `1.0.0`.**
   The first publish is `0.x` (a soft launch while real-world usage accrues). The
   CLI surface and the machine-output contract (invariant 7) are stable by intent
