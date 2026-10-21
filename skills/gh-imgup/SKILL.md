@@ -124,8 +124,9 @@ stdout; for scripting, capture a link with
 ## Auth
 
 Set `GITHUB_TOKEN` to a token with `contents:write` (add `issues:write` for
-`--pr`/`--issue`); a short-lived, single-repo fine-grained PAT minimizes blast
-radius. With no `GITHUB_TOKEN`, the tool falls back to the `gh` CLI token
+`--pr`/`--issue`; add `issues:read` and `pull_requests:read` for `--cleanup`);
+a short-lived, single-repo fine-grained PAT minimizes blast radius. With no
+`GITHUB_TOKEN`, the tool falls back to the `gh` CLI token
 (broader scope; it warns when it does). Missing or invalid credentials fail
 loudly; the tool never falls back to a third-party host. The token is stripped
 from every error message before it reaches stderr, CI logs, or your context.

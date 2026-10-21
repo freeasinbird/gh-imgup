@@ -74,7 +74,8 @@ rationale are in [`docs/design.md`](docs/design.md).
 
 - **Scope the token.** Use a short-lived, single-repository fine-grained PAT
   with `contents:write` (add `issues:write` only if you comment via
-  `--pr`/`--issue`). GitHub has no `releases:write`-only scope, so
+  `--pr`/`--issue`; add `issues:read` and `pull_requests:read` only if you use
+  `--cleanup`). GitHub has no `releases:write`-only scope, so
   `contents:write` also permits pushing commits — keep blast radius small.
 - **Review images before uploading.** The upload is secure; the risk is *what*
   you upload. An asset is public on a public repo and persists until deleted.

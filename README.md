@@ -18,7 +18,7 @@ npx -y @freeasinbird/gh-imgup screenshot.png --repo owner/repo
 npx -y @freeasinbird/gh-imgup screenshot.png --repo owner/repo --pr 42 -m "Login screen"
 ```
 
-Needs a `GITHUB_TOKEN` with `contents:write` (add `issues:write` for `--pr`/`--issue`), or a logged-in `gh` CLI. Run it inside the target repo and `--repo` is inferred from the git remote.
+Needs a `GITHUB_TOKEN` with `contents:write` (add `issues:write` for `--pr`/`--issue`; add `issues:read` and `pull_requests:read` for `--cleanup`), or a logged-in `gh` CLI. Run it inside the target repo and `--repo` is inferred from the git remote.
 
 **Using an agent (Claude Code, Cursor, Codex)?** Also add the [skill](#agent-skill-claude-code-cursor-codex): `npx -y skills add freeasinbird/gh-imgup` gives the agent the usage guidance and the mandatory pre-upload image review. The skill installs no CLI binary of its own; per its Usage section, the agent runs the CLI zero-install via `npx -y @freeasinbird/gh-imgup` (Node 22+). For the smoothest agent runs, you can still pre-install a pinned version (`npm i -g @freeasinbird/gh-imgup@X.Y.Z`) and pre-authorize the bare `gh-imgup`; see [Pre-authorize for agents](#pre-authorize-for-agents), which covers both Claude and Codex.
 
@@ -147,8 +147,9 @@ Environment:
   GITHUB_TOKEN          GitHub token with contents:write scope (add issues:write
                         for --pr/--issue). Optional: if unset, falls back to the
                         gh CLI token (gh auth token), warning on stderr that its
-                        scope is broader. In GitHub Actions it is provided
-                        automatically (add a permissions block).
+                        scope is broader. In GitHub Actions, map it explicitly:
+                        env: GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }} (and add
+                        a permissions block); it is not exported automatically.
 ```
 
 ### The agent workflow
@@ -246,7 +247,7 @@ On private repos, this URL is only accessible to users with repo access. The acc
 
 ### Authentication
 
-The tool uses `GITHUB_TOKEN`, the standard mechanism for GitHub API access: provided automatically in GitHub Actions, or locally a fine-grained PAT scoped to a single repository or the token stored by the `gh` CLI. Required scopes: `contents:write` for uploading, plus `issues:write` if commenting on a PR or issue.
+The tool uses `GITHUB_TOKEN`, the standard mechanism for GitHub API access: in GitHub Actions it must be mapped into the step's `env` from `secrets.GITHUB_TOKEN` (as the workflow example above does — it is not exported automatically), or locally a fine-grained PAT scoped to a single repository or the token stored by the `gh` CLI. Required scopes: `contents:write` for uploading, plus `issues:write` if commenting on a PR or issue, plus `issues:read` and `pull_requests:read` if using `--cleanup`.
 
 The token is read from the environment (or the `gh` CLI), held in memory, sent only to `api.github.com` / `uploads.github.com` over HTTPS, and never written to disk; error output is sanitized to strip token values. See the [Security Model](#security-model) for the full boundary.
 
@@ -287,6 +288,8 @@ With a fine-grained PAT scoped to `contents:write` + `issues:write` on one repo:
 
 **Can:** create prereleases, upload assets, and comment on issues/PRs (that repo only).
 
+`--cleanup` additionally needs `issues:read` and `pull_requests:read` to scan for references before deleting.
+
 **Cannot:** access other repos, change account settings, manage SSH keys, read private repos not in scope.
 
 **Honest limitation:** `contents:write` also permits pushing commits; there is no `releases:write`-only scope in GitHub's current permission model. Use a short-lived, single-repo fine-grained PAT to minimize blast radius.
@@ -301,7 +304,7 @@ These are inherent to the Release Assets approach, accepted with open documentat
 
 - **Images are browsable on public repos.** Anyone can visit `https://github.com/{owner}/{repo}/releases/tag/_gh-imgup` and see every uploaded image. That is worse than GitHub's native `user-attachments/assets/{uuid}` model, which has no public index. On private repos this is a non-issue (only users with repo access can see the releases page). Draft releases would remove the public index but break image rendering (GitHub 404s when resolving draft releases by tag), so a prerelease is the only viable option.
 - **`contents:write` is broader than ideal** (see Credential scope above): the same token that uploads images could push code. Use a fine-grained PAT with the shortest practical expiration, scoped to one repository.
-- **Images persist until deleted.** Release assets don't auto-expire. `gh-imgup --cleanup` interactively removes unreferenced assets (scanning issue/PR bodies and comments); full release deletion is a manual `gh release delete`, intentionally not automated because it breaks every previously-embedded image. The prerelease is labeled `⚠️ Image assets — do not delete` with a description explaining the consequences.
+- **Images persist until deleted.** Release assets don't auto-expire. `gh-imgup --cleanup` interactively removes unreferenced assets, scanning issue/PR bodies, their comments (including inline review comments), commit comments, and release notes — it does NOT scan PR review summary bodies, wikis, README or other repo files, Discussions, or references from forks, other repos, or off GitHub. Full release deletion is a manual `gh release delete`, intentionally not automated because it breaks every previously-embedded image. The prerelease is labeled `⚠️ Image assets — do not delete` with a description explaining the consequences.
 - **Not the same URL format as drag-and-drop.** GitHub's web UI produces `user-attachments/assets/{uuid}` URLs; this tool produces `releases/download/_gh-imgup/{filename}` URLs. Both render identically in GitHub markdown. The only functional difference: `user-attachments` are GitHub-managed and eventually cleaned up, while release assets persist until explicitly deleted.
 
 ---
@@ -328,11 +331,13 @@ gh-imgup/
 │   ├── apierr.ts         # API error formatting + token-decode redaction
 │   ├── release.ts        # Create-or-get release, upload asset, verify digest
 │   ├── github.ts         # Comment on PR/issue
-│   ├── validate.ts       # Repo, tag, number, file, MIME, remote URL parsing
+│   ├── validate.ts       # Repo, tag, number, file, remote URL parsing
 │   ├── cleanup.ts        # Scan issues/PRs for references, interactive deletion
+│   ├── link-header.ts    # RFC 8288 Link-header parsing for cleanup's pagination scan
 │   ├── markdown.ts       # Rendered-inline Markdown decode + alt-text escaping
 │   ├── mime.ts           # MIME allowlist, extension lookup
-│   └── output.ts         # Upload result type, output format type, stdout rendering
+│   ├── output.ts         # Upload result type, output format type, stdout rendering
+│   └── deps.ts           # Shared fetch/warn DI defaults reused across modules
 ├── dist/                 # Compiled JS
 ├── skills/gh-imgup/
 │   └── SKILL.md          # Agent skill definition
