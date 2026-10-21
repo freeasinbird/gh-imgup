@@ -389,19 +389,17 @@ enforced. Violating one is a security regression, not a style nit.
 
 ## Conventions & gotchas
 
-- **Automated PR reviewer: Codex.** ChatGPT Codex reviews every PR
-  automatically on push; no manual trigger (don't post `@codex review`).
-  Its review-author login is `chatgpt-codex-connector[bot]` (REST API form,
-  `type: Bot`); filter review activity by that login. **A no-findings review is
-  a 👍 (`+1`) reaction on the PR, not a review or comment**, so a watch keying
-  only on reviews/comments misreads a clean pass as "no review": also poll
-  reactions (`gh api repos/OWNER/REPO/issues/<pr>/reactions`). Codex only starts
-  tracking a PR on an open / ready / `@codex review` event, so a PR opened on a
-  non-`main` stacked base can be skipped until you fire one (toggling draft to
-  ready via `gh pr ready --undo` then `gh pr ready` is the convention-respecting
-  trigger). The bot's review-summary comment carries the completion marker
-  `codex-pull-request-review-summary` and reports review status and commit
-  (observed on PR #128). Per-finding response conventions live under Pull
+- **No automated PR reviewer.** The owner turned off automatic ChatGPT Codex
+  PR reviews on 2026-10-21. Don't wait for a Codex review, don't post
+  `@codex review`, and don't record Codex as this project's reviewer from the
+  `chatgpt-codex-connector[bot]` reviews on earlier PRs. With no bot reviewer,
+  `docs/agent-workflow.md` §pre-push-review applies to every PR, not only risky
+  ones. `await-pr-review` doesn't apply (it excludes a repository with no
+  automated reviewer), so the handoff records a no-review result instead of a
+  review watch, and an agent following that skill must not record Codex from
+  old PRs either. If a reviewer is turned on again, replace this bullet with a
+  reviewer record from an observed review and update the landing record's
+  Reviewer fields to match. Per-finding response conventions live under Pull
   requests.
 - **Use `freeasinbird/gh-imgup` on GitHub for forge calls.** This project
   has the following forge record:
@@ -422,8 +420,7 @@ enforced. Violating one is a security regression, not a style nit.
   - **Approver permission:** `write`.
   - **Stale lock age:** `240` minutes.
   - **Base-advance checks:** none.
-  - **Reviewer:** `chatgpt-codex-connector`.
-  - **Reviewer completion marker:** `codex-pull-request-review-summary`.
+  - **Reviewer:** `none`.
   - **Consumer:** `land-approved-prs`.
 - **Versioning: `0.x` until the contract is deliberately frozen at `1.0.0`.**
   The first publish is `0.x` (a soft launch while real-world usage accrues). The
