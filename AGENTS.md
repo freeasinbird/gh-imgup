@@ -1,14 +1,10 @@
 # AGENTS.md
 
-`gh-imgup` is a zero-dependency TypeScript CLI that uploads images to
-GitHub issues and PRs via the documented Release Assets API, built for
-agents and CI that need to attach screenshots (especially before/after
-UI images) to PRs for human reviewers. The full specification lives in
-[README.md](README.md) and the design history in `docs/`. This file is
-the single source of truth for development conventions: branch naming,
-pull requests, commits, build commands, and the security invariants that
-define the project. It serves both human contributors and automated
-agents.
+`gh-imgup` is a zero-dependency TypeScript CLI for attaching images to GitHub
+issues and PRs through the documented Release Assets API, especially UI
+screenshots from agents and CI. [README.md](README.md) holds the specification;
+`docs/` holds the design history. This file is the source of truth for
+development conventions and security invariants, for contributors and agents.
 
 Agent-setup profile: High-assurance. A decision note is mandatory for
 changes touching: destructive cleanup or deletion behavior; credential
@@ -187,93 +183,66 @@ translate agent jargon or search for the conclusion.
 
 ## Build, test, run
 
-- **Runtime:** Node.js 22+ (global `fetch`, `node:test`). CI runs Node 22 and 24;
-  the build/test path targets compiled output, so it also runs on Node 20
-  for local development.
-- **Package manager:** npm. Published as an npm package; also distributed
-  as a `gh` CLI extension and an agent skill (all three point at the same
-  compiled `dist/`).
-- **Zero runtime dependencies.** `package.json` carries only
-  `typescript` and `@types/node` as devDependencies (Biome is added as a
-  devDependency for lint/format, see below). The published artifact uses
-  Node built-ins and global `fetch` only.
+- **Runtime:** Node.js 22+ (`fetch`, `node:test`); CI uses Node 22 and 24.
+  Builds and tests also run on Node 20 locally because tests use compiled JS.
+- **Package manager:** npm. Distribution channels are listed under Conventions;
+  invariant 2 forbids runtime dependencies.
 
-Intended npm scripts (single command each, runnable in CI):
+Commands (runnable in CI):
 
-| Task        | Command            | Notes                                              |
-| ----------- | ------------------ | -------------------------------------------------- |
-| Build       | `npm run build`    | `tsc`: compiles `src/*.ts` → `dist/`              |
-| Type-check  | `npm run typecheck`| `tsc --noEmit`                                     |
-| Test        | `npm test`         | builds, then `node --test dist/*.test.js` (built-in runner + `node:assert`); tests run against compiled output, not type-stripped source |
-| Lint        | `npm run lint`     | `biome check .`                                    |
-| Format      | `npm run format`   | `biome format --write .`                           |
-| Run (local) | `node dist/index.js <file...> [options]` | or `npx -y @freeasinbird/gh-imgup …` once published |
+| Task | Command | Notes |
+| --- | --- | --- |
+| Build | `npm run build` | `tsc`: `src/*.ts` → `dist/` |
+| Type-check | `npm run typecheck` | `tsc --noEmit` |
+| Test | `npm test` | Builds, then `node --test dist/*.test.js` with `node:assert` |
+| Lint | `npm run lint` | `biome check .` |
+| Format | `npm run format` | `biome format --write .` |
+| Run (local) | `node dist/index.js <file...> [options]` | Published: `npx -y @freeasinbird/gh-imgup …` |
 
 - **CLAUDE.md is a pointer** that imports this file (`@AGENTS.md`). Edit
   AGENTS.md, never the pointer.
-- **CI** (`.github/workflows/ci.yml`) runs `npm run lint`, `npm run typecheck`,
-  and `npm test` (which builds) on a Node 22/24 matrix on every PR and push to
-  `main`. The workflow conventions below assume these checks exist and gate
-  merges; keep them green and don't remove the gate. Branch protection on
-  `main` enforces this: a PR with the `check` job green is required to merge,
-  admin-enforced (no direct pushes to `main`, even for the owner).
-  Deliberately deferred: an OS matrix (macOS/Windows), revisit when a
-  platform-specific bug shows; a coverage-threshold gate, revisit when
-  baseline coverage numbers exist.
-- **The `check` job is a fail-closed fan-in gate; keep its name and shape.**
-  Branch protection requires the context named `check`, so the matrix reports
-  through a fan-in job that keeps that exact name. Its `if: always()` plus the
-  explicit `needs.test.result == "success"` test are load-bearing: a plain
-  `needs:` job is skipped when a matrix leg fails, and GitHub treats a skipped
-  required check as satisfied, so simplifying the condition makes the gate
-  fail open. Renaming the job breaks merging entirely (the required context
-  never reports).
+- **Keep CI green and required.** `.github/workflows/ci.yml` runs lint,
+  typecheck, and tests (including build) on Node 22/24 for every PR and push
+  to `main`. Branch protection requires `check`, including for admins;
+  nobody pushes directly to `main`.
+- **Preserve the fail-closed `check` job:** its name, `if: always()`, and
+  explicit `needs.test.result == "success"` test. A plain `needs:` job skips
+  when a matrix leg fails, which GitHub treats as satisfying the required
+  check. Renaming it leaves the required context missing.
+- **Deferred checks:** revisit a macOS/Windows matrix after a platform-specific
+  bug, and a coverage-threshold gate when baseline coverage numbers exist.
 
 ## Releases
 
-Published to npm as `@freeasinbird/gh-imgup` (scoped under the org), `0.x` until
-the output contract is deliberately frozen at `1.0` (see the versioning bullet
-under Conventions & gotchas).
+Published as `@freeasinbird/gh-imgup`. See Versioning under Conventions & gotchas.
 
 - **Publishing is OIDC Trusted Publishing: no `NPM_TOKEN`.**
-  `.github/workflows/release.yml` triggers on a `vX.Y.Z` tag, runs with
-  `id-token: write`, upgrades to npm ≥ 11.5.1 (OIDC requires it), and
-  `npm publish`es; provenance is automatic (no `--provenance` flag). The trusted
-  publisher is configured on npmjs.com (this repo + `release.yml`, environment
-  blank, allowed action `npm publish`).
-- **Scoped packages publish PRIVATE by default**: `publishConfig.access:
-  "public"` in `package.json` is load-bearing; don't remove it. (`prepack` builds
-  `dist/` at publish time and `prepublishOnly` gates it, see the packaging
-  gotcha under Conventions.)
-- **Cutting a release:** bump the `package.json` version in a PR, then push the
-  matching `vX.Y.Z` tag; `release.yml` publishes. The publish step is idempotent
-  (skips when that version is already on the registry), so re-tagging is safe;
-  the first `v0.1.0` tag (the package was published manually first) was a green
-  no-op for this reason.
-- **The version-bump PR also updates the README pinned examples.** The two
-  runnable, fully-qualified pins (`npm i -g @freeasinbird/gh-imgup@X.Y.Z` and
-  the CI `npx -y @freeasinbird/gh-imgup@X.Y.Z` example) track the release;
-  find them with `grep -n 'gh-imgup@0' README.md`. The ellipsized `…@0.1.0`
-  allowlist illustrations (here and in the README pre-authorize section) are
-  deliberately version-agnostic and don't track releases.
-- **After pushing the tag, create the GitHub release for it:**
-  `gh release create vX.Y.Z --verify-tag --title vX.Y.Z --notes "<short prose
-  summary of the CHANGELOG entry>"`. npm publishing is tag-triggered and
-  doesn't need it, but the releases page is user-facing: this step was missed
-  for v0.1.2 and v0.1.3 (backfilled 2026-07-01), leaving "Latest" pointing at
-  v0.1.1. Notes-only, normal (non-prerelease) releases; never attach assets
-  (see the `<os>-<arch>` gotcha under Conventions).
-- **A version bump must also commit `package-lock.json`.** `npm version` updates
-  both files, but a commit that stages only `package.json` leaves the lockfile
-  behind: its root and `packages[""]` `version`/`name` must keep matching
-  `package.json` (`@freeasinbird/gh-imgup` / the new version). `npm ci` fails on
-  drift. This bit once: a 0.1.1 bump that staged only `package.json` shipped with
-  the lockfile still at `0.1.0` (and the pre-scope `gh-imgup` name). Use
-  `git add -A` for the bump, or stage the lockfile explicitly.
-- **The first publish was manual**: the trusted publisher can only be configured
-  on an already-published package; every release after is the tag flow above.
-- Never attach `*-<os>-<arch>` release assets: it flips `gh extension install`
-  into binary mode (see the gh-extension gotcha under Conventions).
+  `.github/workflows/release.yml` publishes on `vX.Y.Z` tags with
+  `id-token: write` and npm ≥ 11.5.1 (required for OIDC). Provenance is automatic;
+  omit `--provenance`. npmjs.com's trusted publisher uses this repo,
+  `release.yml`, a blank environment, and allowed action `npm publish`.
+- **Keep `publishConfig.access: "public"` in `package.json`.** Scoped packages
+  default to private. Keep `prepack` building `dist/` and `prepublishOnly`
+  gating publication; see the packaging convention below.
+
+To cut a release:
+
+1. **Bump both manifests in a PR.** Keep `package-lock.json`'s root and
+   `packages[""]` name/version equal to `package.json` (`@freeasinbird/gh-imgup`
+   and the new version). `npm version` updates both; stage the lockfile
+   explicitly. Drift breaks `npm ci`.
+2. **Update the two runnable README pins:** `npm i -g
+   @freeasinbird/gh-imgup@X.Y.Z` and the CI `npx -y
+   @freeasinbird/gh-imgup@X.Y.Z` example. Find them with
+   `grep -n 'gh-imgup@0' README.md`. Leave ellipsized `…@0.1.0` allowlist
+   illustrations unchanged; they illustrate matching, not the current version.
+3. **Push the matching `vX.Y.Z` tag.** `release.yml` publishes, skipping versions
+   already on npm, so repeating the publish step is a no-op.
+4. **Create a normal, notes-only GitHub release after pushing the tag:**
+   `gh release create vX.Y.Z --verify-tag --title vX.Y.Z --notes "<short prose
+   summary of the CHANGELOG entry>"`. Tag-triggered npm publication does not
+   create the GitHub release. Do not mark it prerelease or attach assets; see
+   the extension restriction under Conventions.
 
 ## Architecture invariants
 
@@ -423,12 +392,10 @@ enforced. Violating one is a security regression, not a style nit.
   - **Reviewer:** `none`.
   - **Consumer:** `land-approved-prs`.
 - **Versioning: `0.x` until the contract is deliberately frozen at `1.0.0`.**
-  The first publish is `0.x` (a soft launch while real-world usage accrues). The
-  CLI surface and the machine-output contract (invariant 7) are stable by intent
-  (avoid gratuitous breaks) but `0.x` signals the formal semver promise isn't
-  made yet. `1.0.0` freezes that contract and is a deliberate human call once
-  usage justifies it; don't bump to `1.0` (or break the contract assuming a minor
-  may) without that decision. See issue #16.
+  CLI and machine-output contracts are stable by intent while usage accrues;
+  `0.x` defers the formal semver promise. Freezing at `1.0.0` requires a deliberate
+  human decision once usage justifies it. Do not bump to `1.0` or assume a minor
+  release permits breaking the contract without that decision. See issue #16.
 - **Prerelease, never draft.** The `_gh-imgup` release must be a
   prerelease: draft releases can't be resolved by tag, so asset
   `browser_download_url`s 404. This is load-bearing, not a preference.
@@ -453,55 +420,38 @@ enforced. Violating one is a security regression, not a style nit.
   extension wrapper (root `gh-imgup` shell script), and `skills/gh-imgup/SKILL.md`
   all point at the same compiled `dist/`. Keep them in sync.
 - **Two supported agent/CI invocations: keep both exact.** Zero-install
-  `npx -y @freeasinbird/gh-imgup …` is canonical: `-y` is load-bearing (without
-  it npx's first-run `Ok to proceed?` prompt hangs a non-interactive agent/CI
-  job) and the `@freeasinbird/` scope is mandatory (a bare `npx gh-imgup` is a
-  *different*, unscoped registry package). The **pinned pre-installed** bare
-  `gh-imgup` is the recommended low-friction path for repeat use and for
-  approval reviewers that refuse unpinned npx (Codex): `-y` doesn't help there,
-  it only suppresses npx's own prompt, not a model-based approval gate. Each form
-  has its allowlist string: Claude Code `Bash(gh-imgup *)` (pinned) /
-  `Bash(npx -y @freeasinbird/gh-imgup *)` (npx; the space before `*` won't match
-  a pinned `…@0.1.0`); Codex persistent prefix `["gh-imgup"]` (Codex won't
-  auto-run npx at all). Don't drift the docs/SKILL invocations or these allow
-  strings off each other across README/SKILL/AGENTS. See the README
-  "Pre-authorize for agents" section. In Claude Code auto mode a safety
-  classifier gates whatever no narrow allow rule resolves (second gate,
-  after permissions): the pinned `Bash(gh-imgup *)` rule carries over and
-  covers the bare pinned form, but the npx form was denied even with its
-  allow rule present, and an env-prefixed command matches no rule. Those
-  need a user-added `autoMode.allow` entry (snippet and constraints in the
-  README section); in testing the agent couldn't write it from inside auto
-  mode, and a repo's checked-in `.claude/settings.json` can't carry it.
-  Revisit when field data shows another host's auto/approval mode needs an
-  equivalent documented path.
-- **Never attach a release asset whose name ends in a platform `<os>-<arch>`
-  suffix** (`*-darwin-amd64`, `*-linux-amd64`, `*-windows-amd64.exe`, …), and
-  that's _any_ asset, not just a `gh-imgup-<os>-<arch>` binary. The `gh`
-  extension is **source-install only** (gh clones the repo and runs the root
-  `gh-imgup` script). `gh extension install` flips to binary-download mode the
-  moment the latest release carries _any_ asset whose name ends in a known
-  `<os>-<arch>` suffix; that's the `isBinExtension` check in `cli/cli`
-  (`pkg/cmd/extension/manager.go`): it `strings.HasSuffix`-matches every asset
-  name against `possibleDists()` with **no `gh-imgup-` prefix requirement**, and
-  doesn't care whether a release exists. So a stray helper artifact (a checksum
-  file, an SBOM, …) named `…-linux-amd64` would trip it just as a real binary
-  would. A normal versioned `vX.Y.Z` release with notes is fine and does NOT
-  break the extension (GitHub's auto source tarballs aren't in the `assets`
-  array); just keep every attached asset's name clear of those suffixes. We ship
-  no precompiled binaries (a per-platform bundled Node runtime would undercut the
-  zero-runtime-dep model), see issue #14. Going binary later is a deliberate,
-  separately-reviewed switch.
+  `npx -y @freeasinbird/gh-imgup …` is canonical. `-y` prevents a first-run
+  prompt from hanging agents/CI; the scope avoids the different `npx gh-imgup`
+  package. Recommend pinned, pre-installed `gh-imgup` for repeat use and strict
+  approval reviewers: `-y` bypasses only npx's prompt, not approval gates.
+  Keep README/SKILL/AGENTS invocations and allowlist strings aligned:
+  Claude Code `Bash(gh-imgup *)` (pinned) or
+  `Bash(npx -y @freeasinbird/gh-imgup *)` (the space before `*` excludes pinned
+  `…@0.1.0`); Codex `["gh-imgup"]` (it won't auto-run npx).
+  In Claude auto mode, narrow allow rules resolve before the safety classifier.
+  The pinned rule suffices; npx was denied in testing despite its allow rule,
+  and env-prefixed commands match no rule. Those need user-added
+  `autoMode.allow`: testing blocked agent edits in auto mode, and checked-in
+  `.claude/settings.json` cannot carry it. Before configuring approvals or
+  editing this guidance, read README's "Pre-authorize for agents" for the
+  snippets and constraints. Revisit when another host needs an equivalent path.
+- **Keep the gh extension source-installed:** clone the repo and run the root
+  `gh-imgup` script. Never attach any asset ending in a recognized `<os>-<arch>`
+  suffix (`*-darwin-amd64`, `*-linux-amd64`, `*-windows-amd64.exe`, …), including
+  helper files, regardless of prefix. `gh` matches every asset by suffix and
+  switches to binary installation. Normal versioned releases and automatic
+  source archives are safe. Ship no precompiled binaries: bundled Node runtimes
+  undercut the zero-runtime-dependency model. A binary switch needs separate
+  review; see issue #14 and
+  [the research note](devlog/2026-06-26-1212-gh-extension-release-asset-rule.md).
 - **`dist/` is gitignored, so packaging builds it at pack time.** The `prepack`
-  script (`npm run build`) is load-bearing: the npm `bin` points at
-  `dist/index.js`, and without the hook `npm pack`/`npm publish` from a clean
-  checkout would ship a tarball with no `dist/` (only LICENSE/README/manifest),
-  a broken install. Don't remove `prepack`. The `files` array also excludes
-  `dist/**/*.test.js` (the compiled tests live in `dist/` for `npm test` but
-  must not ship); verify with `npm pack --dry-run --json`.
-- **The SKILL.md pre-upload image review is a security control**, not
-  documentation filler: it's the highest-impact mitigation in the system
-  (the upload is secure; the risk is what gets uploaded). Don't weaken it.
+  hook must build `dist/index.js`, the npm `bin` target, or a clean pack/publish
+  ships a broken install. Keep `prepack` and the `files` exclusion for
+  `dist/**/*.test.js`: compiled tests must not ship. Verify with
+  `npm pack --dry-run --json`.
+- **Keep SKILL.md's pre-upload image review.** It is a security control against
+  uploading sensitive content; a secure upload does not make the image safe.
+  Do not weaken it.
 - **Case-fold what GitHub case-folds, exact-match what it doesn't.** owner,
   repo, and hosts compare case-insensitively (GitHub canonicalizes them);
   tags compare exactly. An over-strict `===` casing check on owner/repo would
@@ -518,22 +468,18 @@ enforced. Violating one is a security regression, not a style nit.
   carries a decision on the mandatory-note list, otherwise in the PR.
   Scope this to those risk classes, not every change.
 - **Docs are audited against the code.** README/SECURITY/CHANGELOG claims
-  (counts, flags, behaviors, the subprocess/network guarantees) are checked
-  against `src/`, scoped to the surface they describe (the compiled CLI and
-  the `gh`-extension wrapper differ), and stated plainly: no marketing, no
-  unverifiable claims about other tools. Same "facts only" discipline as
-  Verification, applied to shipped docs.
+  (counts, flags, behavior, subprocess/network guarantees) must match `src/`
+  and distinguish the compiled CLI from the shell wrapper. State facts plainly;
+  avoid marketing and unverifiable claims about other tools.
 - **Authoring control-char / escape regexes through the edit tooling is
   unreliable.** A character class with control chars, `\uXXXX` escapes, or a
   `\x00-\x7f` range can have its escapes decoded into literal bytes (or the
   range mangled) by the editor/JSON layer. Write such regexes via a node
   script (or use `codePointAt` scans instead of escape ranges) and byte-audit.
-- **npm scripts must be cross-platform.** npm runs scripts under `cmd.exe` on
-  Windows, where Unix tools (`rm`, `cp`, `test`) aren't available; `test` and
-  `prepack` depend on these scripts, so a Unix-only command breaks Windows
-  contributors and pack/publish runs before the build even starts. Use Node
-  one-liners instead (the `clean` script's
-  `node -e "require('node:fs').rmSync(...)"` is the pattern).
+- **npm scripts must be cross-platform.** npm uses `cmd.exe` on Windows. Use
+  Node one-liners, like the `clean` script's
+  `node -e "require('node:fs').rmSync(...)"`, instead of Unix commands (`rm`,
+  `cp`, `test`), so tests and packaging also run on Windows.
 - **I/O is tested via dependency injection.** Modules take their side effects
   (env, the gh/git subprocess, `fetch`, `warn`, `isTTY`, `confirm`) as
   injectable params with production defaults; tests script a fake transport
