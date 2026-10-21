@@ -39,8 +39,12 @@ Options:
   -v, --version         Show version
 
 Environment:
-  GITHUB_TOKEN          GitHub token with contents:write scope
-                        (add issues:write for --pr/--issue).
+  GITHUB_TOKEN          GitHub token with contents:write scope (add issues:write
+                        for --pr/--issue). Optional: if unset, falls back to the
+                        gh CLI token (gh auth token), warning on stderr that its
+                        scope is broader. In GitHub Actions, map it explicitly:
+                        env: GITHUB_TOKEN: \${{ secrets.GITHUB_TOKEN }} (and add
+                        a permissions block); it is not exported automatically.
 
 Uploaded images are public on public repos (visible to anyone) and visible to
 all collaborators on private repos, and persist until deleted. Before
