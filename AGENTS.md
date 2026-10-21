@@ -349,18 +349,22 @@ enforced. Violating one is a security regression, not a style nit.
 
 ## Conventions & gotchas
 
-- **No automated PR reviewer.** The owner turned off automatic ChatGPT Codex
-  PR reviews on 2026-10-21. Don't wait for a Codex review, don't post
-  `@codex review`, and don't record Codex as this project's reviewer from the
-  `chatgpt-codex-connector[bot]` reviews on earlier PRs. With no bot reviewer,
-  `docs/agent-workflow.md` §pre-push-review applies to every PR, not only risky
-  ones. `await-pr-review` doesn't apply (it excludes a repository with no
-  automated reviewer), so the handoff records a no-review result instead of a
-  review watch, and an agent following that skill must not record Codex from
-  old PRs either. If a reviewer is turned on again, replace this bullet with a
-  reviewer record from an observed review and update the landing record's
-  Reviewer fields to match. Per-finding response conventions live under Pull
-  requests.
+- **Expect no automated reviewer.** This project has the following reviewer
+  record:
+
+  - **Reviewer:** `none`, an owner decision. Only the owner changes it.
+
+  The owner turned off automatic ChatGPT Codex PR reviews on 2026-10-21.
+  Don't wait for a Codex review, don't post `@codex review`, and don't
+  record Codex as this project's reviewer from the
+  `chatgpt-codex-connector[bot]` reviews on earlier PRs. With no bot
+  reviewer, `docs/agent-workflow.md` §pre-push-review applies to every PR,
+  not only risky ones. A review-watch skill such as `await-pr-review` skips
+  the review exchange and waits on CI checks only; the handoff says the
+  record skipped the watch. If a reviewer is turned on again, the owner
+  replaces this record with one from an observed review and updates the
+  landing record's Reviewer fields to match. Per-finding response
+  conventions live under Pull requests.
 - **Use `freeasinbird/gh-imgup` on GitHub for forge calls.** This project
   has the following forge record:
 
