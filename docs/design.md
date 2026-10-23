@@ -6,9 +6,11 @@
 
 ## Problem
 
-GitHub has no public API for image attachments in issues/PRs. The drag-and-drop upload in the web UI uses an internal endpoint (`/upload/policies/assets`) that requires browser session cookies and has been explicitly denied as a public API for over five years ([cli/cli#1895](https://github.com/cli/cli/issues/1895)). The internal endpoint cannot be used with any form of API token — it requires three chained CSRF tokens, each bound to browser session cookies.
+This design started from the premise that GitHub had no public way to attach images to issues/PRs from code. The drag-and-drop upload in the web UI uses an internal endpoint (`/upload/policies/assets`) that requires browser session cookies, and the GitHub CLI request for attachment support ([cli/cli#1895](https://github.com/cli/cli/issues/1895)) was closed as not planned in 2020. That web-UI endpoint can't be driven with an API token: it requires three chained CSRF tokens, each bound to browser session cookies.
 
-Three existing workarounds were security-audited as part of this design process:
+GitHub has since documented an `--attach` flag on six GitHub CLI commands (`gh issue create`, `gh issue edit`, `gh issue comment`, `gh pr create`, `gh pr edit`, `gh pr comment`) ([Attaching files with GitHub CLI](https://docs.github.com/en/github-cli/github-cli/attaching-files-with-github-cli)). GitHub CLI uploads the file and writes the resulting `user-attachments` URL into the issue, PR, or comment body; it uses the GitHub CLI's own authentication and requires push access to the repository. Which endpoint and token types it uses is not documented. Feedback on that support is tracked in [cli/cli#13256](https://github.com/cli/cli/issues/13256). The Release Assets design below is unchanged; [Known Tradeoffs](#known-tradeoffs) compares the two access models.
+
+Three existing workarounds were security-audited as part of the original design process; the audits are kept as a historical record:
 
 - **`gh-image`** decrypts browser cookies from disk using the `kooky` library — the same technique as info-stealer malware. Grants full, unscoped GitHub account access.
 - **`github-upload-image-to-pr`** is an AI agent skill that drives a real browser via Chrome DevTools or Playwright MCP. Gives the agent full control of every tab and every logged-in session.
@@ -337,7 +339,7 @@ Anyone can visit `https://github.com/{owner}/{repo}/releases/tag/_gh-imgup` and 
 - **Randomized tag names:** marginal obscurity gain, breaks the create-or-get pattern (tool can't find its own release), adds complexity for negligible security benefit
 - **Per-PR tags** (`_imgup-pr-42`): limits enumeration blast radius but creates cleanup complexity and orphan tags
 
-**Honest assessment:** on public repos, this is an accepted downgrade from `user-attachments`. There is no documented API path that matches `user-attachments`' access model. If this tradeoff is unacceptable for your use case, the internal upload API with browser cookies (`gh-image`) is the only alternative — with its own, larger tradeoffs.
+**Honest assessment:** on public repos, this is an accepted downgrade from `user-attachments`. There is no documented REST API that matches `user-attachments`' access model. A documented way to get that access model from the command line is the GitHub CLI's `--attach` flag, with its own conditions: push access to the repository, a logged-in `gh` CLI, and gh rewriting the issue, PR, or comment body to insert the URL. Its attachments use anonymized URLs with no public index; in public repositories they can be accessed without authentication, and in private and internal repositories only people with repository access can view them ([Attaching files](https://docs.github.com/en/get-started/writing-on-github/working-with-advanced-formatting/attaching-files)). The internal upload API with browser cookies (`gh-image`) is another route, with its own, larger tradeoffs.
 
 ### 2. `contents:write` permits more than releasing
 
@@ -347,9 +349,9 @@ There is no `releases:write`-only scope. The token can push code. Use a fine-gra
 
 Release assets don't auto-expire. Over time, the `_gh-imgup` release accumulates. `--cleanup` safely removes unreferenced assets. Full release deletion is a manual operation by design — see [Cleanup](#cleanup).
 
-### 4. Not the same URL format as drag-and-drop
+### 4. Not the same URL format as native attachments
 
-GitHub's web UI produces `user-attachments/assets/{uuid}` URLs. This tool produces `releases/download/_gh-imgup/{filename}` URLs. Both render identically in GitHub markdown. The only functional difference: `user-attachments` are GitHub-managed and eventually cleaned up; release assets persist until explicitly deleted.
+GitHub's web UI and the GitHub CLI's `--attach` produce anonymized `user-attachments` URLs. This tool produces `releases/download/_gh-imgup/{filename}` URLs. Both render inline in GitHub markdown. Access to a `user-attachments` file follows repository visibility, and the GitHub attachment docs cited above don't describe its deletion or expiry. Release assets persist until explicitly deleted.
 
 ---
 
@@ -667,20 +669,20 @@ All three channels point at the same compiled code. The skill directory and exte
 
 ## Comparison
 
-| Property | `gh-imgup` | `gh-image` | tonkotsuboy | `gitshot` |
-|---|---|---|---|---|
-| Auth | `GITHUB_TOKEN` / fine-grained PAT | Stolen browser cookie | Browser automation | `gh` CLI token |
-| Min credential scope | `contents:write` + `issues:write` on one repo | Full GitHub account | Full browser (all sites) | `repo` scope |
-| API | Documented REST | Undocumented internal | Undocumented (via browser) | Documented REST |
-| Shell injection | Impossible | N/A (Go) | N/A (prompt) | Unquoted `execSync` |
-| 3rd party data flow | None | None | None | catbox.moe fallback |
-| Runtime deps | Zero | `kooky` + transitive | None (prompt) | Zero |
-| Private repo images | Private (same-repo assets) | Private (`user-attachments`) | Private (`user-attachments`) | **Public** (separate repo) |
-| Public repo image index | Browsable on releases page | No index (UUID) | No index (UUID) | Browsable on releases page |
-| Upload integrity | SHA-256 verified | None | None | None |
-| Token sanitization | All error paths | None | N/A | None |
-| Agent image safety | Explicit pre-upload check | None | None | None |
-| Deterministic behavior | Yes (compiled code) | Yes (compiled code) | No (AI interprets prompt) | Yes (compiled code) |
+| Property | `gh-imgup` | `gh --attach` | `gh-image` | tonkotsuboy | `gitshot` |
+|---|---|---|---|---|---|
+| Auth | `GITHUB_TOKEN` / fine-grained PAT | GitHub CLI login; push access required | Stolen browser cookie | Browser automation | `gh` CLI token |
+| Min credential scope | `contents:write` + `issues:write` on one repo | Push access (token type not documented) | Full GitHub account | Full browser (all sites) | `repo` scope |
+| API | Documented REST | Documented GitHub CLI command | Undocumented internal | Undocumented (via browser) | Documented REST |
+| Shell injection | Impossible | N/A | N/A (Go) | N/A (prompt) | Unquoted `execSync` |
+| 3rd party data flow | None | None documented | None | None | catbox.moe fallback |
+| Runtime deps | Zero | `gh` CLI | `kooky` + transitive | None (prompt) | Zero |
+| Private repo images | Private (same-repo assets) | Private (`user-attachments`) | Private (`user-attachments`) | Private (`user-attachments`) | **Public** (separate repo) |
+| Public repo image index | Browsable on releases page | No index (anonymized URL) | No index (UUID) | No index (UUID) | Browsable on releases page |
+| Upload integrity | SHA-256 verified | Not documented | None | None | None |
+| Token sanitization | All error paths | Not documented | None | N/A | None |
+| Agent image safety | Explicit pre-upload check | Not documented | None | None | None |
+| Deterministic behavior | Yes (compiled code) | Yes (compiled code) | Yes (compiled code) | No (AI interprets prompt) | Yes (compiled code) |
 
 ---
 
