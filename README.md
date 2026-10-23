@@ -26,11 +26,13 @@ Needs a `GITHUB_TOKEN` with `contents:write` (add `issues:write` for `--pr`/`--i
 
 ## Why This Exists
 
-GitHub has no public API for image attachments. The drag-and-drop upload in the web UI uses an internal endpoint that requires browser session cookies and has been explicitly denied as a public API for over five years ([cli/cli#1895](https://github.com/cli/cli/issues/1895)).
+For years GitHub offered no public way to attach images to issues and PRs from code. The drag-and-drop upload in the web UI uses an internal endpoint that requires browser session cookies, and the GitHub CLI request for attachment support ([cli/cli#1895](https://github.com/cli/cli/issues/1895)) was closed as not planned in 2020.
 
-That's a real gap for automated workflows. When an agent or CI job implements a UI change, the most useful artifact for review is a screenshot: a CSS diff doesn't tell a reviewer whether a layout looks correct, but a before/after pair answers that in seconds. Without a programmatic path, PRs describe visual changes in text and leave reviewers to check out the branch and see for themselves. Capturing those screenshots by hand is enough friction that it often gets skipped.
+GitHub has since added an `--attach` flag to the GitHub CLI for creating, editing, and commenting on issues and PRs ([Attaching files with GitHub CLI](https://docs.github.com/en/github-cli/github-cli/attaching-files-with-github-cli)); feedback on that support is tracked in [cli/cli#13256](https://github.com/cli/cli/issues/13256). [Native GitHub CLI attachments](#native-github-cli-attachments) below summarizes how it works.
 
-`gh-imgup` uploads through the documented Release Assets API to the **same repository** the PR or issue lives in, so the repo's existing access controls apply to the images. It automates the upload-and-link step; the only manual part left is capturing the screenshots, which an agent with browser access can also do. (The alternatives considered and the security rationale are in the [Security Model](#security-model) and [`docs/design.md`](docs/design.md).)
+Screenshots matter for automated workflows. When an agent or CI job implements a UI change, the most useful artifact for review is a screenshot: a CSS diff doesn't tell a reviewer whether a layout looks correct, but a before/after pair answers that in seconds. Without screenshots, PRs describe visual changes in text and leave reviewers to check out the branch and see for themselves. Capturing those screenshots by hand is enough friction that it often gets skipped.
+
+`gh-imgup` uploads through the documented REST Release Assets API to the **same repository** the PR or issue lives in, so the repo's existing access controls apply to the images. It runs with a scoped `GITHUB_TOKEN` (`contents:write`, plus `issues:write` for `--pr`/`--issue`) in CI without the `gh` CLI installed, verifies upload integrity by SHA-256, writes only machine-parseable output to stdout (Markdown, `--raw`, or `--json`), and leaves retention to you: assets stay until `--cleanup` or a manual delete removes them. It automates the upload-and-link step; the only manual part left is capturing the screenshots, which an agent with browser access can also do. (The alternatives considered and the security rationale are in the [Security Model](#security-model) and [`docs/design.md`](docs/design.md).)
 
 ### Other use cases
 
@@ -39,6 +41,18 @@ That's a real gap for automated workflows. When an agent or CI job implements a 
 - Test result images (charts, rendered components) in issues
 - Architecture diagrams or design mockups embedded in discussions
 - Any image a human reviewer would benefit from seeing alongside code
+
+### Native GitHub CLI attachments
+
+GitHub documents `--attach PATH` on six GitHub CLI commands: `gh issue create`, `gh issue edit`, `gh issue comment`, `gh pr create`, `gh pr edit`, and `gh pr comment` ([Attaching files with GitHub CLI](https://docs.github.com/en/github-cli/github-cli/attaching-files-with-github-cli)). From that page and [Attaching files](https://docs.github.com/en/get-started/writing-on-github/working-with-advanced-formatting/attaching-files):
+
+- **Upload and body rewrite.** GitHub CLI uploads the file to GitHub and writes the resulting URL into the issue, PR, or comment body, where it renders inline as a browser attachment would. A Markdown reference to the same local path in the body is rewritten in place; unreferenced attachments are appended.
+- **Access to run it.** It uses the GitHub CLI's own authentication and requires push access to the repository.
+- **Access to view the file.** The attachment is referenced by an anonymized `user-attachments` URL. In public repositories the file can be accessed without authentication; in private and internal repositories only people with repository access can view it.
+- **File types.** Only image and media files: PNG, GIF, JPEG, SVG, and video (`.mp4`, `.mov`, `.webm`), with a 10 MB maximum for images and GIFs.
+- **Multiple files and alt text.** The flag repeats for several files, but the same file cannot be attached twice. Alt text is set with a `#` suffix on the path, defaults to the file name, and is not supported for video.
+
+The two paths differ in hosting, lifecycle, and access; see [Tradeoffs](#tradeoffs) under the Security Model.
 
 ---
 
@@ -302,10 +316,10 @@ In agentic workflows, the agent decides what to screenshot. The SKILL.md include
 
 These are inherent to the Release Assets approach, accepted with open documentation rather than hidden.
 
-- **Images are browsable on public repos.** Anyone can visit `https://github.com/{owner}/{repo}/releases/tag/_gh-imgup` and see every uploaded image. That is worse than GitHub's native `user-attachments/assets/{uuid}` model, which has no public index. On private repos this is a non-issue (only users with repo access can see the releases page). Draft releases would remove the public index but break image rendering (GitHub 404s when resolving draft releases by tag), so a prerelease is the only viable option.
+- **Images are browsable on public repos.** Anyone can visit `https://github.com/{owner}/{repo}/releases/tag/_gh-imgup` and see every uploaded image. That is worse than GitHub's native `user-attachments` model, which uses anonymized URLs with no public index. A documented way to get `user-attachments` URLs from the command line is the GitHub CLI's `--attach`, with its own requirements and limits: push access to the repository, a logged-in `gh` CLI, gh writing the URL into the body, SVG and video accepted, and a 10 MB limit for images and GIFs (see [Native GitHub CLI attachments](#native-github-cli-attachments)). On private repos this is a non-issue (only users with repo access can see the releases page). Draft releases would remove the public index but break image rendering (GitHub 404s when resolving draft releases by tag), so a prerelease is the only viable option.
 - **`contents:write` is broader than ideal** (see Credential scope above): the same token that uploads images could push code. Use a fine-grained PAT with the shortest practical expiration, scoped to one repository.
 - **Images persist until deleted.** Release assets don't auto-expire. `gh-imgup --cleanup` interactively removes unreferenced assets, scanning issue/PR bodies, their comments (including inline review comments), commit comments, and release notes — it does NOT scan PR review summary bodies, wikis, README or other repo files, Discussions, or references from forks, other repos, or off GitHub. Full release deletion is a manual `gh release delete`, intentionally not automated because it breaks every previously-embedded image. The prerelease is labeled `⚠️ Image assets — do not delete` with a description explaining the consequences.
-- **Not the same URL format as drag-and-drop.** GitHub's web UI produces `user-attachments/assets/{uuid}` URLs; this tool produces `releases/download/_gh-imgup/{filename}` URLs. Both render identically in GitHub markdown. The only functional difference: `user-attachments` are GitHub-managed and eventually cleaned up, while release assets persist until explicitly deleted.
+- **Not the same URL format as native attachments.** GitHub's web UI and the GitHub CLI's `--attach` produce anonymized `user-attachments` URLs; this tool produces `releases/download/_gh-imgup/{filename}` URLs. Both render inline in GitHub markdown. Access to a `user-attachments` file follows repository visibility, and the GitHub attachment docs cited above don't describe its deletion or expiry. Release assets persist until explicitly deleted, for example by `--cleanup`.
 
 ---
 
