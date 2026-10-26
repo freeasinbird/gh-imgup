@@ -7,11 +7,41 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- Output larger than 64 KiB (for example `--json` for many files piped into
+  another program) is no longer cut off at the pipe buffer with a misleading
+  exit 0. The CLI now lets Node flush stdout and stderr before exiting
+  (`process.exitCode` instead of `process.exit()`); exit codes are unchanged.
+- When creating the `_gh-imgup` release fails with 404, the error now names the
+  `owner/repo` and explains that the repo was not found or the token can't
+  access it, pointing at a `--repo` typo, the repo's visibility, and a GitHub
+  Actions `GITHUB_TOKEN` (which covers only its own repo) used with a
+  cross-repo `--repo`. Previously the message was a bare
+  `Create release failed: 404 Not Found`. GitHub's 404 doesn't say which cause
+  applies, so the message names all of them.
+- `--cleanup` now aborts with a non-zero exit and the underlying error when the
+  per-asset re-fetch before a delete fails (network error, non-200 status, or
+  unparseable body). Previously it printed
+  `skipped <name> (id no longer matches; re-run --cleanup)` and exited 0 as if
+  the check had passed. The `Deleted N asset(s).` count now prints even when
+  the run stops early. As before, no asset is deleted on a failed re-check.
+
 ### Security
 
 - `-m/--message` captions are escaped as plain text before GitHub renders a
   posted comment, so caption input cannot inject active links, images, or raw
   HTML beside the uploaded image.
+- `--cleanup` now aborts its scan before any delete when a `Link` header's
+  unquoted `rel` value is not a valid token, instead of reading it as "no next
+  page". Previously such a header could end the scan a page early and let a
+  still-referenced asset look unreferenced.
+- Control characters (C0, DEL, C1, and line/paragraph separators) in a
+  user-supplied file path or name are now collapsed in every error message:
+  validation errors such as `File not found` and `Unsupported file type`,
+  upload and integrity errors, and any other error the CLI reports. Previously
+  only success-path output collapsed them, so a crafted filename could forge
+  stderr or CI log lines when a run failed.
 
 ## [0.1.3] - 2026-07-01
 
