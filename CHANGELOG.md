@@ -26,6 +26,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `skipped <name> (id no longer matches; re-run --cleanup)` and exited 0 as if
   the check had passed. The `Deleted N asset(s).` count now prints even when
   the run stops early. As before, no asset is deleted on a failed re-check.
+- The README Usage block now matches `gh-imgup --help`: it gained the
+  description line and the pre-upload image review paragraph that the block
+  had omitted. Documentation only; no code changes.
 
 ### Security
 
